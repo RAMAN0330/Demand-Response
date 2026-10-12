@@ -2,7 +2,9 @@
 
 This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated. Formulas are taken from the backend source (`backend/ksfp/…`); file references are given so each one can be checked.
 
-> **Illustrative values.** DSM multipliers, prices, participant bids and reliabilities ship as demo data. Load the notified DSM table through Administration (`PUT /api/v1/admin/config/dsm`) before operational use.
+> **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or shedding are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§12).
+>
+> **Illustrative values.** DSM multipliers, prices, participant bids, reliabilities, the frequency bias and the load-shedding roster ship as demonstration data. Which thresholds come from the grid code and which are this application's own policy is marked throughout.
 
 ---
 
@@ -11,7 +13,7 @@ This document explains what the platform does on every tick, which strategies it
 A state control area (here, Karnataka/KPTCL SLDC) must draw from the inter-state grid exactly what it scheduled. Any difference is a **deviation**, settled block by block (15 minutes) under the CERC **Deviation Settlement Mechanism (DSM)**:
 
 - **Over-drawal** (drawing more than schedule) is charged, and charged harder outside a tolerance band and when frequency is low.
-- **Under-drawal** earns little or nothing, so surplus power is wasted value.
+- **Under-drawal** is a potentially costly or low-value surplus condition; what it settles at depends on the applicable DSM provisions, the frequency and the volume band (§3.4).
 - Large deviations also push frequency out of the IEGC band (49.90–50.05 Hz) and can overload transmission corridors.
 
 Demand response (DR) closes the gap by paying flexible consumers, batteries and generators to move their output for a few blocks. The platform decides **who, how much, when and at what cost**. It then dispatches, proves delivery and settles payment, and uses rotational load shedding only as the last resort.
@@ -35,11 +37,30 @@ SCADA / SLDC feed ─► quality ─► state estimate ─► assess ─► dete
 | Detect | Rule and anomaly alarms with on/off delays, correlated into incidents | `detect/detector.py`, `detect/alarms.py` |
 | Decide | Open or revise a DR event: flexibility → LP optimiser → Digital Twin → autonomy policy | `decide/engine.py` |
 | Shed | Roster manager proposes rotational shedding for the residual that flexibility can't cover | `decide/shedding.py` |
-| Act | Signed setpoint commands, acks, timeouts, dead-band | `act/dispatch.py` |
+| Act | HMAC-authenticated setpoint commands, acks, timeouts, dead-band | `act/dispatch.py`, `act/cmdauth.py` |
 | M&V / settle | Delivered vs expected energy, avoided DSM, payments, reliability learning | `act/settlement.py` |
 | Audit | Every step appended to a SHA-256 hash chain | `audit/log.py` |
 
 Write-behind persistence runs every 10 s, and a watchdog degrades autonomy if the loop slows.
+
+### 2.1 Four different clocks
+
+A 1-second software loop is **not** 1-second grid telemetry. Measurement, control decision, command acknowledgement and physical response are separate clocks, and the platform keeps them separate:
+
+| Clock | Reference (where one applies) | In this platform |
+| --- | --- | --- |
+| Frequency measurement | IEGC: measured at 1 s intervals | Target for the frequency input — only if the data is genuinely fresh. Every point is aged from its **source** timestamp (§3.1) |
+| ACE computation / archival | IEGC: real time, archived at ≤ 10 s | A value counts as GOOD only while its source time is ≤ 10 s old |
+| SLDC website (hybrid mode) | — | Polled every **300 s** by default; values keep their fetch time, so they age to SUBSTITUTED/STALE, and this source keeps the platform **advisory** (§5.6) |
+| Primary response | IEGC: full primary response within 45 s for applicable resources | Not assumed for DR participants — each resource uses its own response delay and ramp |
+| Secondary reserve (SRAS) | IEGC: start within 30 s, full within 15 min, sustain ≥ 30 min | SRAS/TRAS capacity is a separate service and is locked out of DR |
+| Tertiary reserve (TRAS) | IEGC: within 15 min of instruction, sustain ≥ 60 min | Separate service class |
+| RTM purchase | IEX: sessions every 30 min, delivery in the 4 blocks after the session | Cannot deliver inside the 4-block horizon (§5.3) |
+| DR event opens after 60 s | **Application policy** | Tunable by severity, telemetry quality and tested false-alarm rate |
+| Command ack timeout 90 s | **Application comms timeout** | Not a delivery guarantee: ack, first response, full output and delivered energy are tracked separately (§5.7) |
+| Shedding proposal after 120 s | **Application trigger** | Separate from, and never a substitute for, approved UFR / df/dt protection (§7) |
+
+Confirm exchange rules and grid-code provisions in force at implementation time.
 
 ---
 
@@ -47,7 +68,7 @@ Write-behind persistence runs every 10 s, and a watchdog degrades autonomy if th
 
 ### 3.1 Data quality and confidence (`ingest/quality.py`)
 
-Each telemetry point has a range, a maximum plausible rate of change (spike check) and a time-to-live. Quality weights:
+Each telemetry point has a range, a maximum plausible rate of change (spike check) and a time-to-live. **Age is measured from the source timestamp** (when the value was measured or fetched), never from when the platform re-read it — so a 5-minute-old web value re-delivered every second does not look fresh. A point is GOOD only while its source age is ≤ 10 s. Quality weights:
 
 | Flag | Weight |
 | --- | --- |
@@ -68,6 +89,15 @@ confidence = 0.25 · w(frequency)
 - Below **85%**, autonomy drops automatically to advisory (every command needs approval).
 - Below 97% a P3 alarm is raised, and below 80% a P2 alarm.
 
+**Hard vetoes.** An average can stay above 85% while one critical input is bad, so each of these forces advisory on its own, whatever the score (`runtime._safety_vetoes`):
+
+- frequency not GOOD (stale, substituted or missing);
+- interchange schedule stale, suspect or missing (ACE cannot be trusted);
+- any breaker (line status) not current (topology uncertain);
+- the source is the SLDC website (until authorised SCADA/EMS telemetry is connected).
+
+Per-asset vetoes send just that asset to approval: gateway heartbeat lost (command path unproven), or BESS state-of-charge telemetry stale. The top bar's data pill shows the worst source age and lists every active veto.
+
 ### 3.2 State estimate (`ingest/estimator.py`)
 
 - A missing or bad bus load is estimated as `(Σ good loads / Σ their load shares) × this bus's load share`, so one failed RTU lowers confidence rather than corrupting the state.
@@ -76,18 +106,21 @@ confidence = 0.25 · w(frequency)
   - `p` is net injection at each internal bus.
   - `H` is the PTDF matrix with distributed slack at the inter-state tie buses.
   - `H` is cached per outage set.
-- Voltage is a screening estimate: `V ≈ 1.035 − 0.075·(worst adjacent loading)²` pu.
+- Voltage is a **heuristic screening estimate**: `V ≈ 1.035 − 0.075·(worst adjacent loading)²` pu. A DC model does not solve voltage or reactive power, so this cannot certify voltage compliance.
+- The DC model is a planning-level screen. Live use needs a validated network model — actual topology, impedances, transformer limits, line ratings, outage configurations — with AC load flow and the applicable contingency studies.
 
 ### 3.3 Area Control Error and severity (`grid/state.py`)
 
 IEGC definition:
 
 ```
-ACE = (Ia − Is) − 10 · Bf · (Fa − Fs)
+ACE = (Ia − Is) − 10 · Bf · (Fa − Fs) + Offset
 
-Ia = −actual drawal       Is = −scheduled drawal
-Bf = frequency bias = −160 MW per 0.1 Hz (Karnataka)       Fs = 50.00 Hz
+Ia = −actual drawal       Is = −scheduled drawal       Fs = 50.00 Hz
+Bf = frequency bias, MW per 0.1 Hz        Offset = 0 unless configured (supported in code)
 ```
+
+- The IEGC defines the interchange sign convention and requires each SLDC to assess and declare its own frequency bias from its control-area response. **Bf is not a universal constant.** The value used here (−160 MW/0.1 Hz) is Karnataka configuration data **pending confirmation from the SLDC's declaration**.
 
 - **Negative ACE** means the state is short (over-drawing). Direction is **UP**: reduce load or add supply.
 - **Positive ACE** means the state is long. Direction is **DOWN**: absorb surplus.
@@ -95,11 +128,12 @@ Bf = frequency bias = −160 MW per 0.1 Hz (Karnataka)       Fs = 50.00 Hz
 
 Severity:
 
-| Severity | Condition |
-| --- | --- |
-| EMERGENCY | f < 49.80 Hz, or \|ACE\| > 1,500 MW |
-| ALERT | f < 49.90 or f > 50.05 Hz, or \|ACE\| ≥ 100 MW |
-| NORMAL | otherwise |
+| Severity | Condition | Source |
+| --- | --- | --- |
+| EMERGENCY | f < 49.80 Hz, or \|ACE\| > 1,500 MW | **Application policy** (not grid-code thresholds) |
+| ALERT | f < 49.90 or f > 50.05 Hz | IEGC normal operating band |
+| ALERT | \|ACE\| ≥ 100 MW | Application policy |
+| NORMAL | otherwise | — |
 
 **Forecast-error reserve (P90 margin)** is the flexibility kept free in case the forecast is wrong:
 
@@ -118,30 +152,38 @@ C  = (DAM + RTM + ancillary) / 3
 NR = max(A, B, C)
 ```
 
-**Deviation band** (the tolerance; this also sets the load-shedding trigger, §7):
+The rule table is **versioned configuration**. Each table records its regulation, amendments applied, effective date, source and approver, and `PUT /api/v1/admin/config/dsm` refuses a table without a version, source and effective date. The table in force is used everywhere: assessment, optimiser, strategy comparison and M&V.
+
+**Volume bands.** The 2024 structure prices successive slices of |deviation| differently. Each band's upper edge is the lower of a percentage of schedule and an MW cap:
 
 ```
-band = min(10% of schedule, 100 MW)
+edge_k = min(pct_k % × schedule, cap_k)       (edges never decrease; the last band is open-ended)
+
+shipped default (structure of the 2024 general-buyer rules — numbers illustrative):
+  band 1:  up to min(10% of schedule, 100 MW)      ← the tolerance band; also the shedding trigger (§7)
+  band 2:  up to min(15% of schedule, 200 MW)
+  band 3:  beyond
 ```
 
-**Per-block charge** (15 min = 0.25 h):
+**Per-block charge** (15 min = 0.25 h), summed over the bands the deviation reaches:
 
 ```
-within = min(|dev|, band)        beyond = max(0, |dev| − band)
-amount = within · 0.25 h · 1000 · m_within · NR  +  beyond · 0.25 h · 1000 · m_beyond · NR
+amount = Σ_k  MW_in_band_k · 0.25 h · 1000 · m_k(frequency band, direction) · NR
 ```
 
-The amount is positive (payable) for over-drawal and negative (receivable) for under-drawal.
+Over-drawal is payable (+); under-drawal is receivable (−), with its own multipliers.
 
-**Multipliers** (illustrative 2024 structure):
+**Illustrative multipliers of NR** (load the notified values for the applicable buyer category):
 
-| Frequency band | Over-drawal within / beyond | Under-drawal within / beyond |
+| Frequency band | Over-drawal band 1 / 2 / 3 | Under-drawal band 1 / 2 / 3 |
 | --- | --- | --- |
-| LOW (f < 49.90) | 1.5 / 2.0 | 1.0 / 0.5 |
-| NORMAL | 1.0 / 1.5 | 0.9 / 0.0 |
-| HIGH (f ≥ 50.05) | 0.5 / 1.0 | 0.0 / 0.0 |
+| LOW (f < 49.90) | 1.5 / 2.0 / 2.5 | 1.0 / 0.5 / 0.0 |
+| NORMAL | 1.0 / 1.5 / 2.0 | 0.9 / 0.0 / 0.0 |
+| HIGH (f ≥ 50.05) | 0.5 / 1.0 / 1.5 | 0.0 / 0.0 / 0.0 |
 
-**Marginal DSM rate** is the multiplier of the outermost slice in use × NR. It is the ₹/kWh price that any paid flexibility has to beat.
+> **Regulatory status.** This reproduces the *structure* of the CERC DSM Regulations, 2024, not the notified settlement formula. Before any settlement use, load the principal regulations for the applicable buyer category, read with all subsequent amendments and orders (CERC lists a Third Amendment dated 7 September 2026 and an order of 3 October 2026 on Regulation 9(7)), and verify against official settlement statements, including boundary cases at each volume limit. Version-1 tables (one band + beyond) still load, as a two-band table.
+
+**Marginal DSM rate** is the multiplier of the outermost band in use × NR — the ₹/kWh of the next MW of deviation. It is the price any paid flexibility has to beat, compared like for like with the flexibility's cost per delivered kWh (§5.2).
 
 ---
 
@@ -198,7 +240,7 @@ The production ML ensemble (LightGBM / TFT) plugs in behind the same `forecast()
 
 | Step | Rule |
 | --- | --- |
-| **Open** | \|ACE\| ≥ **100 MW**, sustained **60 s** (immediately in EMERGENCY); not at autonomy L0; outside the post-event cool-down |
+| **Open** | \|ACE\| ≥ **100 MW**, sustained **60 s** (immediately in EMERGENCY); not at autonomy L0; outside the post-event cool-down. *Application policy, not a grid-code time* |
 | **Revise** (MPC re-solve) | Every new 15-min block; on a material change in the requirement (> max(80 MW, 25%)); on a command failure; or on escalation to EMERGENCY |
 | **Wind down** | Underlying requirement < **60 MW** for 3 consecutive ticks → release resources → close → settle |
 
@@ -237,33 +279,52 @@ available = min(technical, state contract share + emergency share)
 - The emergency share is released only in EMERGENCY.
 - SRAS/TRAS (ancillary) commitments are **locked** and never dispatched for DR.
 
-**Expected delivery and true cost:**
+**Expected delivery and cost — one definition everywhere.** The platform pays only for delivered energy, so cost and reliability play different roles:
 
 ```
-expected       = available · reliability
-rebound        = reboundFrac · off-peak price · 0.5            (₹/kWh; load returning after release)
-effective cost = (bid + opportunity + rebound) / reliability    (₹ per expected kWh)
+expected   = available · reliability                      ← reliability scales the MW we can count on, nothing else
+pay rate   = ₹ paid per delivered kWh                      ← the same rate settlement pays (§6), locked at dispatch
+rebound    = reboundFrac · off-peak price                  ← ₹ per delivered kWh for energy that returns after release
+effective  = pay rate + rebound                            ← ₹ per delivered kWh: ranking, economic filter, LP, display
 ```
 
-For BESS discharging, opportunity = off-peak price / (η_c · η_d); for BESS charging, bid = degradation cost. Unreliable resources look more expensive, so they are ranked fairly against reliable ones.
+| Resource | Pay rate |
+| --- | --- |
+| Demand-side (interruptible, shiftable, industrial, DER) | Bid. The consumer's own opportunity cost is already priced into the bid |
+| BESS discharging (UP) | Bid + recharge energy = bid + off-peak price / (η_c · η_d) |
+| BESS charging (DOWN) | Degradation cost |
+| Generation UP | Variable cost + wear |
+| Generation DOWN | Credit: −60% of variable cost saved (part-load heat rate), plus wear |
 
-**Timing.** The earliest usable block comes from response time: an asset already delivering, or responding within 15 min, can be used in block 1. The remaining duration budget = max duration − blocks already used.
+An unreliable resource is not marked up in price: it contributes fewer expected MW, so the optimiser buys more capacity to cover the requirement.
 
-**Economic DR only in NORMAL.** When severity is NORMAL, a resource whose effective cost ≥ the DSM marginal rate is skipped, because paying it would cost more than the deviation it removes.
+**Timing: within-block response.** A resource that takes 12 minutes to respond delivers only the last 3 minutes of a 15-minute block. The platform credits each block with what the response trajectory actually delivers:
+
+```
+g(t)   = clamp((t − d) / τ, 0, 1)       d = response delay (min), τ = available MW / ramp rate (min)
+φ_b    = (1/15) ∫ g(t) dt over block b  share of block b's energy delivered
+E_i,b  = R_i · φ_i,b · x_i,b · 0.25 h   expected energy in block b
+```
+
+For example, a 12-minute response with an instant ramp gives φ = 0.2 in block 1 and 1.0 from block 2. A resource already delivering has φ = 1. The earliest usable block is the first with φ > 0. The remaining duration budget = max duration − blocks already used.
+
+Still to be learned per resource: time to first response, to 50% and to full output; sustained duration and availability windows; recovery and rebound profile; measurement, gateway and command delays; and proven reliability from metered output (not acknowledgements).
+
+**Economic DR only in NORMAL.** When severity is NORMAL, a resource whose effective cost (₹ per delivered kWh) ≥ the DSM marginal rate (₹ per kWh of deviation) is skipped, because paying it would cost more than the deviation it removes.
 
 ### 5.3 The optimiser (`decide/optimizer.py`)
 
 A network-constrained, multi-block linear program, solved with HiGHS. Horizon = 4 blocks (1 hour), re-solved every block (model-predictive control).
 
 **Variables**
-- `x[i,b]` — MW commanded from resource i in block b
+- `x[i,b]` — MW commanded (setpoint) from resource i in block b; expected delivery is `R_i · φ_i,b · x[i,b]`
 - `s[b]` — unserved requirement
 - `v[l,b]` — overload slack on line l
 
 **Objective**
 
 ```
-min  Σ (bid + opp + rebound)_i · R_i · x[i,b] · 0.25 h · 1000      ← paid cost of expected energy
+min  Σ (pay + rebound)_i · R_i · φ_i,b · x[i,b] · 0.25 h · 1000   ← cost of expected delivered energy
    + λ · Σ s[b]                                                     ← unserved, λ = max(3·NR, ₹25/kWh) per MWh
    + μ · Σ v[l,b]                                                   ← overload, μ = 10⁷ (≫ λ)
 ```
@@ -271,18 +332,18 @@ min  Σ (bid + opp + rebound)_i · R_i · x[i,b] · 0.25 h · 1000      ← paid
 **Constraints**
 
 ```
-Σ_i R_i·x[i,b] + s[b] ≥ req                            balance (in expected MW)
-Σ_i R_i·x[i,b] ≤ 1.05·req + 20                         no over-correction
+Σ_i R_i·φ_i,b·x[i,b] + s[b] ≥ req                      balance (expected block-average MW)
+Σ_i R_i·φ_i,b·x[i,b] ≤ 1.05·req + 20                   no over-correction
 |f0_l + Σ_i PTDF[l,bus_i]·dir·x[i,b]| − v[l,b] ≤ limit_l   thermal limit, both directions
-0 ≤ x[i,b] ≤ available_i ;  x = 0 before earliest block   capacity, response time
+0 ≤ x[i,b] ≤ available_i ;  x = 0 where φ_i,b = 0       capacity, response time
 x[i,b] − x[i,b−1] ≤ ramp_i · 15 min                     ramp (x[i,−1] = current MW)
-Σ_b x[i,b]·0.25/η_d ≤ usable energy                    BESS energy
+Σ_b φ_i,b·x[i,b]·0.25/η_d ≤ (SoC − SoC_min)·capacity    BESS energy (stored energy; η_d applied once)
 Σ_b x[i,b] ≤ maxBlocks_i · available_i                 duration budget
 ```
 
 - `f0` is the base flow with our own current delivery backed out, so each re-solve starts from a "what if we weren't acting" baseline.
 - A tiny index tie-break keeps the merit order stable between re-solves.
-- **RTM** is offered only for UP, at RTM ACP + ₹0.05/kWh. Because of gate closure it can't deliver before block 5, so in a 4-block horizon it usually shows "beyond this horizon".
+- **RTM** here is a **purchase for a deficit** (UP only), at RTM ACP + ₹0.05/kWh. Delivery comes in the four blocks after the session (about 1 h), so it can't deliver inside the 4-block horizon and shows "beyond this horizon". A surplus would need a separate, rule-compliant selling path, which is not modelled; the Options tab marks RTM n/a for a surplus.
 
 **Outputs**
 - Allocations by block, ranked by effective cost, with caps explained (energy-limited, max duration, ramp-limited).
@@ -293,9 +354,9 @@ x[i,b] − x[i,b−1] ≤ ramp_i · 15 min                     ramp (x[i,−1] =
 **Costs of a plan**
 
 ```
-resource_rs   = Σ expected MWh · 1000 · unit cost           (paid to DR / BESS / generation)
+resource_rs   = Σ expected MWh · 1000 · pay rate            (paid to DR / BESS / generation)
 rtm_rs        = same, for the RTM purchase
-rebound_rs    = Σ reboundFrac · expected MWh · 1000 · off-peak price
+rebound_rs    = Σ reboundFrac · expected MWh · 1000 · off-peak price      (costed once, not inside the pay rate)
 residual_dsm  = Σ_blocks DSM(deviation − dir · supplied_b)  (DSM still owed; negative = credit)
 total_rs      = resource_rs + rtm_rs + rebound_rs + residual_dsm
 do_nothing_rs = Σ_blocks DSM(deviation)                      (the counterfactual)
@@ -309,7 +370,7 @@ Each strategy is the same LP restricted to a set of resource types:
 | Strategy | Resources allowed | When it wins |
 | --- | --- | --- |
 | **Do nothing** | none | Baseline: absorb the deviation and pay DSM |
-| **Buy in RTM** | Real-Time Market | Long events where a ~1 h lead is acceptable |
+| **Buy in RTM** | Real-Time Market purchase (deficit only) | Long shortages where a ~1 h lead is acceptable |
 | **Re-dispatch generation** | Intra-state thermal/hydro headroom | When cheap headroom sits on unconstrained buses |
 | **BESS only** | Grid batteries | Fast and short; limited by SoC |
 | **Demand response only** | Interruptible, shiftable, industrial, DER | Peaks where consumer flexibility is cheapest |
@@ -332,8 +393,8 @@ Before any command, the plan is simulated minute by minute against live state:
 | --- | --- | --- |
 | Heartbeat and command path | No gateway heartbeat for > 60 s | **Exclude** asset, re-solve |
 | BESS state of charge | Trajectory would breach SoC_min | **Derate** to 95% of usable MW, re-solve |
-| Line loading after dispatch | Dispatch makes any line worse than 100% (fail); pre-existing overload only relieved (warn) | Not dispatched if worse |
-| Bus voltage | Estimated < 0.95 pu | warn |
+| Line loading after dispatch (DC screening) | Dispatch makes any line worse than 100% (fail); pre-existing overload only relieved (warn) | Not dispatched if worse |
+| Voltage screening (heuristic) | Estimate < 0.95 pu | warn — not an AC solution |
 | Response lag | < 70% of planned block-1 energy after response delay and ramp | warn |
 | P90 reserve kept free | Free expected flexibility < P90 margin | warn |
 | Ancillary double-commitment | — | SRAS/TRAS always untouched |
@@ -341,6 +402,8 @@ Before any command, the plan is simulated minute by minute against live state:
 | Requirement covered | Shortfall > 0.5 MW: fail in EMERGENCY (escalate to load management), warn otherwise | — |
 
 Up to 4 optimise → twin passes. If the twin still fails, a human must decide.
+
+The twin is a **pre-dispatch screening gate**, not a substitute for utility-grade network validation. A DC flow cannot establish that a real switching or dispatch action is safe.
 
 ### 5.6 Autonomy policy and approvals (`decide/policy.py`)
 
@@ -353,8 +416,11 @@ Up to 4 optimise → twin passes. If the twin still fails, a human must decide.
 
 **Automatic degradation to L1:**
 - data confidence < 85%;
+- any hard veto (§3.1): stale frequency, schedule or breaker status, or the SLDC-website source;
 - control-loop latency high;
 - kill switch (suspend) pressed.
+
+Per-asset vetoes (lost heartbeat, stale SoC) send that asset to approval even at L2/L3.
 
 **Dual authorisation:**
 - Needed when the MW awaiting approval exceeds **200 MW**.
@@ -372,7 +438,9 @@ AWAITING_APPROVAL → READY → SENT → ACKED → EXECUTING → COMPLETED
 
 Any non-terminal command can end as CANCELLED (rejected or aborted) or SUPERSEDED (a newer setpoint for that asset).
 
-- Commands are idempotent (command id) and signed (SHA-256), and there is **no blind resend**.
+- Commands are idempotent (command id) and there is **no blind resend**.
+- **Authentication** (`act/cmdauth.py`): when a command is sent, the platform computes HMAC-SHA-256 over a canonical message `{v, key_id, id, decision, asset, setpoint, kind, issued_at}` with a dedicated key (`KSFP_COMMAND_KEY`, separate from the session secret; rotate by key id). The gateway verifies independently with its own copy of the key and refuses an unknown key id, a tag mismatch (constant-time compare), a message older than 30 s or from the future, or a replayed command id. This is message authentication, not a public-key signature; use an asymmetric scheme (e.g. Ed25519) where non-repudiation is required. The audit hash chain (§9) is a separate mechanism.
+- **Four clocks per command:** acknowledgement (comms), first metered response (10% of the way to setpoint), full output (90%) and delivered energy (M&V). The Dispatch tab shows ack · first · full in seconds from send. The 90 s ack timeout is a comms limit, not a delivery guarantee.
 - **Dead-band:** a new setpoint is sent only if it differs from the current one by more than max(5 MW, 8%). Small re-solves don't churn participants.
 - **Under-delivery:** delivered < 70% of expected raises an alarm, and the next re-solve compensates.
 
@@ -398,13 +466,23 @@ performance factor PF = 1.0                if p ≥ 90%
 payment = delivered MWh · 1000 · rate · PF
 ```
 
-- `rate` = bid, plus opportunity cost for BESS and generation.
+- `rate` = the pay rate locked at dispatch (§5.2) — the same rate the optimiser costed.
 - Generation is always paid at PF = 1.
 - RTM is paid at the RTM price.
 
-**Net benefit** = avoided DSM − payments.
+**Counterfactual ledger.** Every savings figure for an event comes from one ledger, shown in the Settlement tab. It reconciles by assertion, with nothing counted twice:
 
-**Reliability learning** (used in the next event's expected MW and effective cost):
+```
+  DSM with no action (counterfactual)
+− DSM on the actual deviation
+= DSM avoided
+− participant payments          (DR, BESS, generation; backing-down generation can be a credit)
+− RTM purchase
+− rebound energy                (reboundFrac · delivered MWh · off-peak price)
+= net savings
+```
+
+**Reliability learning** (used in the next event's expected MW):
 
 ```
 reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
@@ -416,14 +494,18 @@ reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
 
 **Order of resort for over-drawal:** paid flexibility first (DR, BESS, generation, RTM). Only the **residual** (the optimiser's unserved MW in block 1, with MW already shed counted in) can become a shedding order. Under-drawal is never handled by shedding.
 
+> **Three separate functions.** (1) The **DR optimiser** recommends the lowest-cost feasible response from enrolled resources. (2) The **load-management proposal** recommends a feeder-level residual action under the approved roster and approval rules. (3) **Independent protection** — under-frequency (UFR) and df/dt relays — operates under the approved protection scheme and the applicable Regional Power Committee settings. The platform never delays, disables or overrides it. The 49.80 Hz threshold below is a decision policy, not a relay setting.
+>
+> **Demo roster.** The shipped roster is demonstration data: groups built from 220 kV stations, a flat 30% sheddable share, and generated protected-feeder counts. It cannot establish that any real feeder is safe to open. Replace it with the DISCOM's verified feeder-level records (measured loads, protected classifications, approved roster, switching authority) before use. The Load Shedding page shows a DEMO ROSTER badge until then.
+
 ### Trigger
 
 ```
-residual ≥ 50 MW  AND  ( frequency < 49.90 Hz   OR   residual > DSM band = min(10% of schedule, 100 MW) )
+residual ≥ 50 MW  AND  ( frequency < 49.90 Hz   OR   residual > DSM band 1 = min(10% of schedule, 100 MW) )
 sustained 120 s — or immediately when frequency < 49.80 Hz
 ```
 
-The band follows the DSM rule table live. An engineer can override it with a fixed MW.
+The band follows the DSM rule table in force (its first band). An engineer can override it with a fixed MW. The 120 s hold is an application trigger.
 
 ### Approval
 
@@ -503,13 +585,14 @@ Alarm lifecycle:
 
 | Where | Number | Calculation |
 | --- | --- | --- |
-| Top bar | Frequency, Δsch | Live frequency (coloured by IEGC band); drawal − schedule (+ = over-drawing) |
+| Top bar | Data pill | Data confidence (§3.1), plus the worst source age when > 10 s; the tooltip lists ages for frequency, schedule, breakers and the SLDC fetch, and every active veto |
 | Top bar | Block clock | Time block n of 96 (15-min DSM blocks); the bar shows progress through the day |
 | Overview → **Grid need** | Need | Event requirement, or the live requirement when no event is open. Coverage bar = delivering (green) + shed (red) vs the need; gap = the rest |
 | Overview → Grid need | ACE, DSM/block | §3.3 and §3.4, for the current block |
 | DR Events → **Options** | Total, saves, coverage, acts in | §5.3 and §5.4 |
 | DR Events → Safety | Checks | §5.5 |
-| DR Events → Settlement | Payment, PF, net benefit | §6 |
+| DR Events → Dispatch | Ack · first · full | Seconds from send to acknowledgement, first metered response and full output (§5.7) |
+| DR Events → Settlement | Payment, PF, ledger, net savings | §6 |
 | Grid | Demand Δ/blk | Demand change over the last 15 min of grid time |
 | Grid | Most loaded corridor | max(\|flow\| / limit) from the DC power flow |
 | Load Shedding | Uncovered OD vs limit | §7 trigger: residual vs DSM band |
@@ -529,7 +612,7 @@ Situation:
 - Frequency 49.95 Hz.
 - Prices: DAM ₹5.40, RTM ₹7.20, ancillary ₹8.10.
 
-**1. ACE**
+**1. ACE** (Offset = 0; Bf = −160 MW/0.1 Hz as configured, pending the SLDC's declared value)
 
 ```
 Ia − Is    = −5,650 − (−5,300)                = −350 MW
@@ -537,44 +620,65 @@ freq term  = −10 · (−160) · (49.95 − 50.00)   = −80 MW
 ACE        = −350 − 80                        = −430 MW
 ```
 
-ACE is short, so direction = **UP** and requirement = **430 MW**. |ACE| ≥ 100, so severity = **ALERT**.
+ACE is short, so direction = **UP** and requirement = **430 MW**. |ACE| ≥ 100 MW, so severity = **ALERT** (application threshold; 49.95 Hz is inside the IEGC band).
 
-**2. DSM exposure**
+**2. DSM exposure** (illustrative multipliers — not a CERC-settled amount)
 
 ```
-NR   = max(5.40, 7.20, (5.40 + 7.20 + 8.10)/3 = 6.90) = ₹7.20/kWh  (RTM binding)
-band = min(10% · 5,300, 100) = 100 MW
-f = 49.95 is in the NORMAL band → over-drawal multipliers 1.0 within, 1.5 beyond
-DSM  = 100 · 0.25 · 1000 · 1.0 · 7.20  +  250 · 0.25 · 1000 · 1.5 · 7.20
-     = ₹1,80,000 + ₹6,75,000 = ₹8,55,000 per block
-marginal rate = 1.5 · 7.20 = ₹10.80/kWh
+NR    = max(5.40, 7.20, (5.40 + 7.20 + 8.10)/3 = 6.90) = ₹7.20/kWh  (RTM binding)
+edges = min(10% · 5,300, 100) = 100 MW;  min(15% · 5,300, 200) = 200 MW;  then open
+350 MW splits 100 / 100 / 150 across the three bands; f = 49.95 Hz → NORMAL multipliers 1.0 / 1.5 / 2.0
+DSM   = (100·1.0 + 100·1.5 + 150·2.0) · 0.25 h · 1000 · 7.20
+      = ₹1,80,000 + ₹2,70,000 + ₹5,40,000 = ₹9,90,000 per block
+marginal rate = 2.0 · 7.20 = ₹14.40/kWh
 ```
 
-So any flexibility cheaper than ₹10.80 per expected kWh saves money.
+So any flexibility cheaper than ₹14.40 per delivered kWh saves money. (With the earlier single-band table, the same deviation gave ₹8,55,000; the difference is exactly why the notified band table must be loaded.)
 
 **3. A participant's effective cost**
 
-The participant bids ₹4.50, with opportunity cost ₹0.50, rebound fraction 0.3 and reliability 0.90:
+An industrial participant bids ₹4.50/kWh, with rebound fraction 0.3 and reliability 0.90:
 
 ```
-rebound   = 0.3 · 3.20 · 0.5             = ₹0.48/kWh
-effective = (4.50 + 0.50 + 0.48) / 0.90  = ₹6.09/kWh   → well below ₹10.80, so it is dispatched
+pay rate  = bid                         = ₹4.50 per delivered kWh
+rebound   = 0.3 · 3.20                  = ₹0.96 per delivered kWh
+effective = 4.50 + 0.96                 = ₹5.46 per delivered kWh   → well below ₹14.40, so it is dispatched
+expected  = available MW · 0.90         (reliability shrinks the MW counted on, not the price)
 ```
+
+If it responds in 12 minutes, block 1 counts only φ = 0.2 of its setpoint.
 
 **4. Event.** The condition holds for 60 s, so an event opens.
-- The LP fills the 430 MW (in expected MW) cheapest-first, within line limits, ramps and SoC.
-- The twin checks the plan.
-- At L2, BESS and generation up to 250 MW go automatically; the DR participants wait for approval.
+- The LP fills the 430 MW of expected delivery cheapest-first, within line limits, ramps, SoC and each resource's response trajectory.
+- The twin screens the plan.
+- At L2, with no vetoes, BESS and generation up to 250 MW go automatically; the DR participants wait for approval. With any veto active, everything waits.
 - If the MW awaiting approval exceeds 200, two approvers are needed.
 
 **5. Settlement.** The participant was expected to deliver 10 MWh and delivered 7.6 MWh:
 
 ```
 p  = 0.76  → PF = (0.76 − 0.5)/0.4 = 0.65
-payment         = 7.6 · 1000 · ₹4.50 · 0.65 = ₹22,230      (demand-side rate = bid)
+payment         = 7.6 · 1000 · ₹4.50 · 0.65 = ₹22,230      (pay rate locked at dispatch)
+rebound energy  = 0.3 · 7.6 · 1000 · ₹3.20  = ₹7,296       (in the ledger)
 new reliability = 0.8 · 0.90 + 0.2 · 0.76   = 0.872
 ```
 
-The next event will expect 87.2% of their available MW and price them at ÷ 0.872.
+The next event will count on 87.2% of their available MW.
 
-**6. If flexibility runs out.** Suppose 180 MW stays uncovered for 2 minutes. 180 > 100 MW band, so a **180 MW** shedding order is proposed and waits for shift-in-charge approval. On approval, roster groups are picked across DISCOMs by load share, least-shed first, and rotated every ≤ 45 minutes until the over-drawal is covered. Load is then restored one group every 2 minutes.
+**6. If flexibility runs out.** Suppose 180 MW stays uncovered for 2 minutes. 180 > 100 MW (band 1), so a **180 MW** shedding order is proposed and waits for shift-in-charge approval. On approval, roster groups are picked across DISCOMs by load share, least-shed first, and rotated every ≤ 45 minutes until the over-drawal is covered. Load is then restored one group every 2 minutes. With the demo roster, this demonstrates the workflow only.
+
+---
+
+## 12. Validation before a utility pilot
+
+| Area | Required before live use |
+| --- | --- |
+| Telemetry | Authorised SCADA/EMS (or equivalent) path with source timestamps; the SLDC-website mode stays advisory |
+| DSM | Notified table for the buyer category with all amendments and orders, with provenance recorded; boundary tests against official statements |
+| Network | Validated model (topology, impedances, ratings, transformers), AC load flow for voltage, applicable contingency studies |
+| Load management | DISCOM-approved feeder roster with measured loads and protected classifications; switching stays with authorised operators |
+| Resources | Per-resource response envelope (delays, ramp, duration, recovery) learned from metered data |
+| Commands | Key management and rotation; gateway-side verification in the field equipment |
+| Operations | Historical replay and shadow mode alongside existing operator decisions: false alarms, unserved requirement, delivery forecast error, line-limit violations, response delay, settlement reconciliation |
+
+**Reference set:** CERC Indian Electricity Grid Code Regulations, 2023 (control-area operation, ACE, frequency response, ancillary services, demand management); CERC DSM Regulations, 2024, read with all amendments and applicable orders; IEX Real-Time Market rules (session and delivery timing); CEA advisories on minimising load shedding; the applicable State Commission regulations and DISCOM/SLDC operating procedures. Draft amendments (e.g. the draft Second Amendment to the IEGC, 2026) are consultation proposals, not in-force obligations.

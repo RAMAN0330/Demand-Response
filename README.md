@@ -43,13 +43,14 @@ Demo accounts (password = username + `123`): `operator`, `sic` (shift-in-charge)
 | --- | --- | --- |
 | `KSFP_DATABASE_URL` | `sqlite+aiosqlite:///./data/ksfp.db` | Use `postgresql+asyncpg://…` for PostgreSQL; telemetry becomes a TimescaleDB hypertable when the extension is present |
 | `KSFP_JWT_SECRET` | random per start | **Set in production** (tokens must survive restarts) |
+| `KSFP_COMMAND_KEY` / `KSFP_COMMAND_KEY_ID` | random per start / `k1` | **Set in production**: command-authentication key shared with field gateways (separate from the session secret) |
 | `KSFP_SOURCE` | `simulated` | `hybrid` polls the SLDC website (all DISCOM 220 kV load pages + StateGen) and overrides/calibrates the simulated field |
 | `KSFP_KPTCL_POLL_S` | `300` | SLDC website poll interval |
 | `KSFP_TIME_SCALE` | `20` | Simulated-clock speed (1 in hybrid mode) |
 | `KSFP_AUTO_DISTURBANCES` | `true` | Random field events for drills |
 | `KSFP_DEMO_USERS` | `true` | Seed the demo accounts |
 
-Hybrid mode needs outbound HTTPS to `kptclsldc.in` from the API host. If a page can't be fetched, its channels stay simulated, and Administration → Data sources shows per-page health and any unmapped rows.
+Hybrid mode needs outbound HTTPS to `kptclsldc.in` from the API host. **It is advisory only:** website values are up to one poll interval old (ages are measured from fetch time), so this source vetoes automatic control until authorised SCADA/EMS telemetry is connected. If a page can't be fetched, its channels stay simulated, and Administration → Data sources shows per-page health and any unmapped rows.
 
 ## Landing page & overview video
 
@@ -62,7 +63,7 @@ Enterprise palette (navy-azure brand, steel neutrals; green, ochre and crimson r
 | Module | What the operator gets |
 | --- | --- |
 | **Overview** (spatial workspace) | The live 3D territory map fills the screen; everything else floats over it as collapsible glass panels. Headline DR numbers on top (grid need, flexibility available, dispatched, delivering, participants online, event/value); *At risk*, *Next* and *Intent* (Situation → Impact → Prediction → Recommendation → Action → Outcome, with Approve) on the right. Selecting anything (a DR event, participant, substation, alarm, predicted overload, overloaded line) flies the camera there, pins a detail card beside it and lights up the affected lines and participants. The active DR event plays out on the map — dispatch going out to participants, acknowledgements and delivery — with a timeline along the bottom you can scrub, replay or snap back to live |
-| **DR Events** | Today's summary, the event log with delivery progress and a live activity log (re-plans, approvals, signed dispatch, acks, settlement). Per event: target / dispatched / delivering / performance / duration / value, a target-vs-dispatched-vs-delivered curve, tabs for participants, grid need, options, safety checks, dispatch, revisions and settlement, and **Show / Replay on map**. Approve, reject or abort with reasons |
+| **DR Events** | Today's summary, the event log with delivery progress and a live activity log (re-plans, approvals, authenticated dispatch, acks, settlement). Per event: target / dispatched / delivering / performance / duration / value, a target-vs-dispatched-vs-delivered curve, tabs for participants, grid need, options, safety checks, dispatch (ack · first response · full output), revisions and settlement (counterfactual ledger), and **Show / Replay on map**. Approve, reject or abort with reasons |
 | **Programs** | Programme cards (available vs contracted MW, participants online, reliability, price, terms). Picking a programme lights up its participants on the map beside the registry; clicking a participant flies to it |
 | **Load Shedding** | Emergency load management, the last resort for over-drawal. When paid flexibility can't cover it, the platform proposes an order. The trigger is uncovered over-drawal beyond the DSM deviation band (min(10% of schedule, 100 MW), taken live from the DSM rule table) or frequency below 49.90 Hz, sustained 2 min, or immediately below 49.80 Hz. An order **only acts after shift-in-charge approval** (dual above 200 MW) and is never autonomous. Non-essential 11 kV feeders in roster groups of ~4 stations per DISCOM are opened, split across DISCOMs by load share and least-shed first. Limits: spells ≤ 45 min, ≤ 120 min per group per day, and a full spell of rest after each. Hospitals, water works, railway traction and defence are never shed. Restoration is staged, and paid DR is kept on while shedding is released first. The page has a roster board (live MW, minutes today, rest timers), the 220 kV feeders on the map, the order lifecycle (approve, reject, restore all, propose) and an audited order log |
 | **Grid** | Network loading, resources in action, every 220 kV load channel by DISCOM (live vs simulated) and every generating station. The 3D map shows every 220 kV feeder from its 400 kV substation, with animated flow scaled to its load; shed feeders turn red and stop flowing |
@@ -79,13 +80,18 @@ The status cluster (severity, autonomy level with kill switch, data confidence, 
 - **Runtime loops:** 1 Hz state loop (ingest → quality → estimate → assess → detect → decide → dispatch), forecast every simulated minute, SLDC poller, write-behind persistence every 10 s, and a dead-man watchdog.
 - **Decide:** a network-constrained multi-block LP (HiGHS) re-solved every block (MPC). Before any command, a Digital-Twin gate checks heartbeat, SoC, flows, voltage, reserve and rebound, and excludes or derates anything that fails.
 - **Autonomy policy:** L0 Monitor, L1 Advisory, L2 Supervised (automatic only inside an envelope), L3 Autonomous. It degrades automatically on low data confidence or an unhealthy loop. Includes a kill switch and dual authorisation above a MW threshold.
-- **Act:** signed setpoint commands with ack timeouts, a dead-band and no blind resend. Measurement & verification (M&V) runs per tick, with performance-factor settlement and reliability learning.
+- **Act:** setpoint commands authenticated with HMAC-SHA-256 (verified independently at the gateway: key id, freshness, replay), ack timeouts, a dead-band and no blind resend. Acknowledgement, first response, full output and delivered energy are tracked separately. Measurement & verification (M&V) runs per tick, with performance-factor settlement and reliability learning.
 - **Trust:** JWT + RBAC (operator / shift-in-charge / analyst / engineer / admin), and a SHA-256 hash-chained audit log with a verify endpoint. Probes and Prometheus metrics are exposed at `/health`, `/ready` and `/metrics`.
 
 See `docs/HOW-IT-WORKS.md` for how the loop works, the strategies it weighs and every calculation (with a worked example), and `docs/ARCHITECTURE.md` for the full design, scaling path and failure modes.
 
 ## Caveats
 
-- **DSM multipliers are illustrative.** The structure follows the CERC DSM Regulations 2024. Load the notified table via Administration / `PUT /api/v1/admin/config/dsm` before real use.
-- **The network is a screening model.** It is a simplified DC power flow with planning-level limits, not the utility's EMS model.
+**Status: simulation and advisory prototype — not ready for autonomous grid control.** See `docs/HOW-IT-WORKS.md` §12 for what must be validated before a utility pilot.
+
+- **DSM table is illustrative.** The engine implements the tiered structure of the CERC DSM Regulations, 2024 (versioned, with provenance), but the shipped numbers are not the notified table. Load the table for the applicable buyer category, read with all amendments and orders, via Administration / `PUT /api/v1/admin/config/dsm` before any settlement use.
+- **Telemetry.** A 1-second software loop is not 1-second grid telemetry. Ages are measured from source timestamps; stale frequency, schedule or breaker status, or the SLDC-website source, keep the platform advisory.
+- **The network is a screening model.** It is a simplified DC power flow with planning-level limits and a heuristic voltage estimate, not the utility's EMS model or an AC study.
+- **The load-shedding roster is demonstration data** (generated groups, flat 30% sheddable share, generated protected counts). Use the DISCOM's approved feeder roster before any use. Independent UFR / df/dt protection is never delayed or overridden by the platform.
+- **Thresholds.** The IEGC band (49.90–50.05 Hz) is from the grid code; the 49.80 Hz / 1,500 MW emergency rules, the 60 s event trigger, 90 s ack timeout and 120 s shedding hold are application policy. The frequency bias (−160 MW/0.1 Hz) is configuration pending the SLDC's declared value.
 - **Demo data:** participant names, capacities, bids and reliabilities are representative demo data. The simulated field stands in for SCADA/EMS and DR gateways until real integrations are connected.
