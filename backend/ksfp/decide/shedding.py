@@ -1,4 +1,4 @@
-"""Emergency load management: rotational load shedding (feeder rostering) — the last resort for over-drawal.
+"""Emergency load management: load rotation (feeder rostering) — the last resort for over-drawal.
 
 Order of resort for an over-drawal (OD): paid flexibility first (DR, BESS, generation, RTM). Only the
 residual that flexibility cannot cover, while frequency is below the IEGC band, becomes a shedding
@@ -232,12 +232,12 @@ class RosterManager:
     # ------------------------------------------------------------------ operator actions
     def propose(self, mw: float, reason: str, source: str, now: float) -> ShedOrder:
         if self.open_order():
-            raise ValueError("A load-shedding order is already open")
+            raise ValueError("A load-rotation order is already open")
         self._n += 1
-        o = ShedOrder(id=f"LS-{Clock.hhmmss(now).replace(':', '')}-{self._n}", created=now, mw=round(mw, 0), reason=reason, source=source)
+        o = ShedOrder(id=f"LR-{Clock.hhmmss(now).replace(':', '')}-{self._n}", created=now, mw=round(mw, 0), reason=reason, source=source)
         o.needs_dual = o.mw > self.policy.dual_auth_mw
         self.orders[o.id] = o
-        self._emit("proposed", f"Load shedding proposed: {o.mw:.0f} MW — {reason}", o)
+        self._emit("proposed", f"Load rotation proposed: {o.mw:.0f} MW — {reason}", o)
         return o
 
     def approve(self, order_id: str, user: str, role: str, can_dual: bool, now: float, bus_load: dict[str, float]) -> ShedOrder:
@@ -250,18 +250,18 @@ class RosterManager:
             raise PermissionError("Second (dual) authorisation needs shift-in-charge authority")
         o.approvals.append({"user": user, "role": role, "ts": now})
         if o.needs_dual and len(o.approvals) < 2:
-            self._emit("approval", f"First approval by {user} for {o.mw:.0f} MW load shedding — awaiting dual authorisation", o)
+            self._emit("approval", f"First approval by {user} for {o.mw:.0f} MW load rotation — awaiting dual authorisation", o)
             return o
         groups = self.select(o.mw, bus_load, now)
         if not groups:
             o.state, o.closed, o.closed_reason = "CANCELLED", now, "No roster group eligible (daily limits / rest periods)"
-            self._emit("exhausted", f"Load shedding {o.id} could not start: roster exhausted", o)
+            self._emit("exhausted", f"Load rotation {o.id} could not start: roster exhausted", o)
             return o
         for g in groups:
             self._shed(g, o, now)
         o.state, o.activated = "ACTIVE", now
         mw = sum(self.group_mw(g, bus_load) for g in groups)
-        self._emit("activated", f"Load shedding {o.id} active: {len(groups)} group(s), {mw:.0f} MW — {', '.join(g.name for g in groups)}", o, groups=[g.id for g in groups])
+        self._emit("activated", f"Load rotation {o.id} active: {len(groups)} group(s), {mw:.0f} MW — {', '.join(g.name for g in groups)}", o, groups=[g.id for g in groups])
         return o
 
     def reject(self, order_id: str, user: str, reason: str, now: float) -> ShedOrder:
@@ -370,7 +370,7 @@ class RosterManager:
                 shed.remove(g)
             if o.state == "RESTORING" and not shed:
                 o.state, o.closed = "COMPLETED", now
-                self._emit("completed", f"Load shedding {o.id} complete — all feeders restored ({o.shed_minutes_mw / 60:.1f} MWh not served, {o.rotations} rotation(s))", o)
+                self._emit("completed", f"Load rotation {o.id} complete — all feeders restored ({o.shed_minutes_mw / 60:.1f} MWh not served, {o.rotations} rotation(s))", o)
             return
 
         # 5) top up if the residual grew beyond what is shed

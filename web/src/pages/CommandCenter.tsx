@@ -328,7 +328,8 @@ function GridNeedCard({ className, delivering, onOpen }: { className: string; de
             </div>
             <div className="mt-0.5 flex justify-between text-[10px] text-slate-500">
               <span>
-                <b className="font-mono text-emerald-700">{(pct * 100).toFixed(0)}%</b> covered{shed > 0 && <span className="text-rose-600"> · incl. {fmtMW(shed)} shed</span>}
+                <b className="font-mono text-emerald-700">{(pct * 100).toFixed(0)}%</b> covered
+                {shed > 0 && <span className="text-rose-600"> · incl. {fmtMW(shed)} rotated out</span>}
               </span>
               <span>
                 gap <b className={cn('font-mono', remaining > 100 ? 'text-amber-700' : 'text-slate-700')}>{fmtMW(remaining)}</b>

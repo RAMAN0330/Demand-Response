@@ -115,7 +115,7 @@ function TopBar() {
           {[
             ['platform', 'Platform'],
             ['how', 'How it works'],
-            ['shedding', 'Load shedding'],
+            ['shedding', 'Load rotation'],
             ['trust', 'Trust'],
             ['video', 'Overview video'],
           ].map(([id, l]) => (
@@ -232,7 +232,7 @@ function Facts() {
     ['1 Hz', 'control loop: ingest → detect → decide → dispatch'],
     ['≈ 15 ms', 'network-constrained LP solve per plan (HiGHS)'],
     ['90', '220 kV stations live on the map, all DISCOMs'],
-    ['25', 'load-shedding roster groups across 5 DISCOMs'],
+    ['25', 'load-rotation roster groups across 5 DISCOMs'],
     ['1,683 MW', 'contracted flexibility, 24 participants'],
   ]
   return (
@@ -380,10 +380,10 @@ function Shedding() {
           <div className="mt-5">
             <Eyebrow dark>Emergency load management</Eyebrow>
           </div>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">Load shedding as the last resort — fair, limited, and never automatic</h2>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight">Load rotation as the last resort — fair, limited, and never automatic</h2>
           <p className="mt-4 text-[16px] leading-relaxed text-sky-100/85">
-            Only the over-drawal that paid flexibility cannot cover becomes a shedding proposal — when it stays beyond the DSM deviation band or frequency drops below 49.90 Hz —
-            and it acts only after shift-in-charge approval.
+            Only the over-drawal that paid flexibility cannot cover becomes a load-rotation proposal — when it stays beyond the DSM deviation band or frequency drops below 49.90 Hz
+            — and it acts only after shift-in-charge approval.
           </p>
           <div className="mt-6 grid grid-cols-2 gap-3">
             {[
@@ -398,7 +398,7 @@ function Shedding() {
               </div>
             ))}
           </div>
-          <div className="mt-6 text-[13px] text-sky-100/70">Never shed:</div>
+          <div className="mt-6 text-[13px] text-sky-100/70">Never rotated:</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {['Hospitals', 'Water works', 'Railway traction', 'Defence'].map((x) => (
               <span key={x} className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-[13px] text-emerald-200 ring-1 ring-emerald-400/30">
@@ -408,10 +408,10 @@ function Shedding() {
           </div>
         </div>
         <div className="relative">
-          <Frame src="/landing/shed.webp" alt="Load Shedding: roster board, 220 kV feeders on the map and the order lifecycle" />
+          <Frame src="/landing/shed.webp" alt="Load Rotation: roster board, 220 kV feeders on the map and the order lifecycle" />
           <Frame
             src="/landing/shedcard.webp"
-            alt="A shed 220 kV station with its roster group and protected loads"
+            alt="A rotated-out 220 kV station with its roster group and protected loads"
             className="absolute -bottom-10 -left-8 hidden w-[46%] md:block"
           />
         </div>
@@ -544,7 +544,7 @@ function Video() {
         <Eyebrow>Product overview</Eyebrow>
         <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">See a DR event from first alarm to settlement</h2>
         <p className="mx-auto mt-3 max-w-2xl text-[16px] text-slate-600">
-          A four-minute narrated walkthrough: the spatial workspace, a live DR event, programmes, replay and settlement, and load shedding under human control.
+          A four-minute narrated walkthrough: the spatial workspace, a live DR event, programmes, replay and settlement, and load rotation under human control.
         </p>
       </div>
       <div className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-2xl bg-slate-900 shadow-2xl shadow-slate-900/25 ring-1 ring-slate-900/10">

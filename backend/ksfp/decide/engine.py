@@ -400,7 +400,7 @@ class DecisionEngine:
             f"(ACE {a.ace.ace:+.0f} MW). Underlying need: {dirn} by {need:.0f} MW ({d.severity})."
         )
         if self.relief_mw > 0.5 and d.direction == "UP":
-            situation += f" {self.relief_mw:.0f} MW of load is currently shed under the roster."
+            situation += f" {self.relief_mw:.0f} MW of load is currently rotated out under the roster."
         impact_bits = [f"DSM exposure {fmt_rs(a.dsm.amount_rs)} per 15-min block (NR ₹{a.dsm.nr.nr:.2f}/kWh, {a.dsm.freq_band} frequency band)."]
         if s.flow.max_loading >= 0.9:
             impact_bits.append(f"Network: {t.line_label(s.flow.max_line)} at {s.flow.max_loading * 100:.0f}%.")

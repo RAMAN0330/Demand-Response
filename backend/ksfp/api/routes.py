@@ -438,7 +438,7 @@ async def shed_restore(body: ReasonIn, request: Request, p: Principal = Depends(
     async with r.lock:
         o = r.roster.restore_all(p.username, body.reason, r.clock.now())
         if not o:
-            raise HTTPException(409, "No load-shedding order is open")
+            raise HTTPException(409, "No load-rotation order is open")
         r._drain_roster(r.clock.now())
     return o.to_dict()
 
@@ -465,7 +465,7 @@ async def shed_policy(body: ShedPolicyIn, request: Request, p: Principal = Depen
         if follow:
             r.roster.policy.od_limit_mw = None
         v = await r.store.put_config("shed_policy", asdict(r.roster.policy), p.username, r.clock.now())
-        r.audit.append(r.clock.now(), "CONFIG", p.username, f"Load-shedding policy v{v}: {body.model_dump(exclude_none=True)}")
+        r.audit.append(r.clock.now(), "CONFIG", p.username, f"Load-rotation policy v{v}: {body.model_dump(exclude_none=True)}")
     return asdict(r.roster.policy)
 
 

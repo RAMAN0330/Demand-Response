@@ -172,7 +172,7 @@ const CAMS: { id: CameraPreset; label: string }[] = [
 const LAYER_DEFS: { k: keyof MapLayers; label: string; icon: typeof Zap }[] = [
   { k: 'grid', label: '400/765 kV grid', icon: Zap },
   { k: 'flows', label: 'Animated power flow', icon: Waves },
-  { k: 'ch220', label: '220 kV feeders — live flow & shedding (all DISCOMs)', icon: Cable },
+  { k: 'ch220', label: '220 kV feeders — live flow & load rotation (all DISCOMs)', icon: Cable },
   { k: 'genStations', label: 'Generating stations', icon: Diamond },
   { k: 'generation', label: 'Generation complexes', icon: Mountain },
   { k: 'dr', label: 'DR fleets', icon: Factory },
@@ -320,17 +320,17 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     const v = frame.channels[c.id]
     const g = GROUP_OF_CHANNEL[c.id]
     const off = !!frame.shedding?.shed_channels[c.id]
-    const sheddable = (v?.mw ?? 0) * 0.3
+    const rotatable = (v?.mw ?? 0) * 0.3
     return {
       title: `${c.name} 220 kV`,
       sub: `${c.discom} · fed from ${BUS_BY_ID[c.parent_bus]?.name.split(' ')[0]} 400 kV`,
       rows: [
-        ['Feeder status', off ? 'SHED — non-essential feeders open' : 'In service'],
+        ['Feeder status', off ? 'ROTATED OUT — non-essential feeders open' : 'In service'],
         ['Load', v ? fmtMW(v.mw, 1) : '—'],
         ['Roster group', g ? `${g.discom} ${g.letter} (${g.channels.length} stations)` : '—'],
-        ['On roster (non-essential)', off ? 'disconnected' : `≈ ${fmtMW(sheddable)}`],
+        ['On roster (non-essential)', off ? 'disconnected' : `≈ ${fmtMW(rotatable)}`],
         [
-          'Never shed',
+          'Never rotated',
           g
             ? Object.entries(g.protected)
                 .filter(([, n]) => n > 0)
@@ -414,7 +414,7 @@ const AnchoredCard = ({
   const base = sel ? describe(sel, frame, loading) : null
   const over = sel && rowsFor ? rowsFor(sel) : null
   const d = base && over ? { ...base, rows: over } : base
-  const bad = d?.rows.some(([, v]) => String(v).startsWith('LOST') || String(v).startsWith('SHED') || v === 'OUTAGE')
+  const bad = d?.rows.some(([, v]) => String(v).startsWith('LOST') || String(v).startsWith('ROTATED OUT') || v === 'OUTAGE')
   return (
     <div
       ref={ref}

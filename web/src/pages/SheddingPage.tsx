@@ -124,7 +124,7 @@ export function SheddingPage() {
         />
         <Stat
           icon={<Power />}
-          label="Load shed now"
+          label="Rotated out now"
           value={fmtMW(sm.active_mw)}
           delta={{ text: `${sm.groups_out}/${groups.length} groups`, tone: sm.groups_out ? 'bad' : 'good' }}
           meter={sm.active_mw / Math.max(1, rosterMw)}
@@ -138,7 +138,7 @@ export function SheddingPage() {
           delta={
             open ? { text: `${open.approvals.length}/${open.needs_dual ? 2 : 1} approvals`, tone: open.approvals.length >= (open.needs_dual ? 2 : 1) ? 'good' : 'warn' } : undefined
           }
-          sub={open ? `${open.id} · ${fmtMW(open.mw)}${open.needs_dual ? ' · dual' : ''}` : 'flexibility first, shedding last'}
+          sub={open ? `${open.id} · ${fmtMW(open.mw)}${open.needs_dual ? ' · dual' : ''}` : 'flexibility first, load rotation last'}
           tone={open ? (open.state === 'PROPOSED' ? 'warn' : 'bad') : 'good'}
         />
         <Stat
@@ -162,7 +162,7 @@ export function SheddingPage() {
           value={`${spread.toFixed(0)} min`}
           delta={{ text: `max ${maxMin.toFixed(0)}/${p.max_daily_min}`, tone: maxMin > p.max_daily_min * 0.8 ? 'warn' : undefined }}
           meter={maxMin / Math.max(1, p.max_daily_min)}
-          sub="spread, most vs least shed group"
+          sub="spread, most vs least rotated group"
           tone={spread > p.max_spell_min * 1.5 ? 'warn' : 'good'}
         />
       </StatStrip>
@@ -175,7 +175,7 @@ export function SheddingPage() {
               {sm.roster_source === 'DEMO' && (
                 <span
                   className="rounded bg-amber-100 px-1.5 py-px text-[9.5px] font-bold tracking-wide text-amber-800"
-                  title="Groups, the 30 % sheddable share and protected-feeder counts are generated demonstration data. Replace with the DISCOM's approved feeder-level roster (measured loads, protected classifications, switching authority) before any operational use."
+                  title="Groups, the 30 % rotatable share and protected-feeder counts are generated demonstration data. Replace with the DISCOM's approved feeder-level roster (measured loads, protected classifications, switching authority) before any operational use."
                 >
                   DEMO ROSTER
                 </span>
@@ -185,11 +185,11 @@ export function SheddingPage() {
           aside={
             <span className="flex min-w-0 items-center gap-3 text-[11px] text-slate-500">
               <span className="flex min-w-0 items-center gap-1 truncate">
-                <ShieldCheck className="size-3.5 shrink-0 text-emerald-600" /> never shed: {p.protected.join(' · ')}
+                <ShieldCheck className="size-3.5 shrink-0 text-emerald-600" /> never rotated: {p.protected.join(' · ')}
               </span>
               <span
                 className="shrink-0 rounded border border-slate-200 px-1.5 py-px text-[10px] whitespace-nowrap text-slate-500"
-                title="Under-frequency (UFR) and df/dt relays act under the approved protection scheme. This platform proposes roster shedding for approval only; it never delays, disables or overrides that protection."
+                title="Under-frequency (UFR) and df/dt relays act under the approved protection scheme. This platform proposes load rotation for approval only; it never delays, disables or overrides that protection."
               >
                 UFR / df/dt protection independent
               </span>
@@ -233,15 +233,15 @@ export function SheddingPage() {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3 text-[10px] text-slate-500">
             <Legend cls="bg-white ring-slate-200" label="available" />
-            <Legend cls="bg-rose-50 ring-rose-300" label="shed (feeders open)" />
+            <Legend cls="bg-rose-50 ring-rose-300" label="rotated out (feeders open)" />
             <Legend cls="bg-slate-50 ring-slate-200" label="resting after a spell" />
             <Legend cls="bg-slate-100 ring-slate-300" label="daily limit reached" />
-            <span>bar = minutes shed today of {p.max_daily_min} · m = minutes, × = spells</span>
+            <span>bar = minutes off today of {p.max_daily_min} · m = minutes, × = spells</span>
           </div>
         </Panel>
 
         <div className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1.05fr)_minmax(0,1fr)] gap-3">
-          <Panel title="220 kV feeders — red = shed" bodyClass="p-0">
+          <Panel title="220 kV feeders — red = rotated out" bodyClass="p-0">
             <TerritoryMap
               compact
               className="rounded-t-none border-0"
@@ -281,7 +281,7 @@ function GroupCard({ g, p, now, onLocate }: { g: Group; p: Policy; now: number; 
   return (
     <button
       onClick={onLocate}
-      title={`${g.name} — ${g.channels.length} stations. Never shed: ${Object.entries(g.protected)
+      title={`${g.name} — ${g.channels.length} stations. Never rotated: ${Object.entries(g.protected)
         .filter(([, n]) => n > 0)
         .map(([k, n]) => `${k} ${n}`)
         .join(', ')}`}
@@ -331,7 +331,7 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
   const history = orders.filter((o) => o !== open)
   return (
     <Panel
-      title={open ? `Order ${open.id}` : 'Load-shedding orders'}
+      title={open ? `Order ${open.id}` : 'Load-rotation orders'}
       aside={open && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold', STATE_STYLE[open.state])}>{open.state}</span>}
       bodyClass="flex flex-col gap-2"
     >
@@ -355,7 +355,7 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
               <div className="flex gap-2">
                 {can('shed') && !mine && (
                   <Button size="sm" variant="destructive" className="h-7" disabled={busy} onClick={() => act(`/shedding/orders/${open.id}/approve`)}>
-                    <Check className="size-3.5" /> {open.approvals.length ? 'Second approval' : 'Approve shedding'}
+                    <Check className="size-3.5" /> {open.approvals.length ? 'Second approval' : 'Approve rotation'}
                   </Button>
                 )}
                 {can('shed') && (
@@ -416,11 +416,11 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
       ) : (
         <>
           <div className="flex shrink-0 items-center gap-2 rounded-lg bg-emerald-50/80 px-2.5 py-2 text-[12px] text-emerald-800">
-            <ShieldCheck className="size-4 shrink-0" /> No shedding. The platform proposes an order only when paid flexibility cannot cover the over-drawal.
+            <ShieldCheck className="size-4 shrink-0" /> No load rotation. The platform proposes an order only when paid flexibility cannot cover the over-drawal.
           </div>
           {can('shed_propose') && (
             <div className="flex shrink-0 items-center gap-2">
-              <Input type="number" value={mw} onChange={(e) => setMw(Number(e.target.value))} className="h-7 w-20 bg-white/80 text-xs" aria-label="MW to shed" />
+              <Input type="number" value={mw} onChange={(e) => setMw(Number(e.target.value))} className="h-7 w-20 bg-white/80 text-xs" aria-label="MW to rotate" />
               <span className="text-[11px] text-slate-500">MW</span>
               <Input placeholder="Reason (e.g. RLDC instruction)" value={reason} onChange={(e) => setReason(e.target.value)} className="h-7 bg-white/80 text-xs" />
               <Button
@@ -436,7 +436,7 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
           )}
           <div className="min-h-0 flex-1">
             {history.length === 0 ? (
-              <Empty>No load-shedding orders yet.</Empty>
+              <Empty>No load-rotation orders yet.</Empty>
             ) : (
               <FitPager
                 items={history}

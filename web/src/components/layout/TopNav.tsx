@@ -44,7 +44,7 @@ const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'decisions', label: 'DR Events', icon: Zap },
   { id: 'resources', label: 'Programs', icon: Users },
   { id: 'operations', label: 'Grid', icon: Network },
-  { id: 'shedding', label: 'Load Shedding', icon: Power },
+  { id: 'shedding', label: 'Load Rotation', icon: Power },
   { id: 'analysis', label: 'Forecast', icon: LineChart },
   { id: 'alarms', label: 'Alarms', icon: Bell },
 ]

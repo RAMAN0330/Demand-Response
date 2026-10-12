@@ -4,9 +4,9 @@ ADRMS — Automated Demand Response Management System.
 
 This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated — the maths, the reasoning behind each choice, and worked numbers.
 
-> **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or shedding are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§12).
+> **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or load rotation are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§12).
 >
-> **Illustrative values.** DSM multipliers, prices, participant bids, reliabilities, the frequency bias and the load-shedding roster ship as demonstration data. Which thresholds come from the grid code and which are this application's own policy is marked throughout.
+> **Illustrative values.** DSM multipliers, prices, participant bids, reliabilities, the frequency bias and the load-rotation roster ship as demonstration data. Which thresholds come from the grid code and which are this application's own policy is marked throughout.
 
 ---
 
@@ -18,7 +18,7 @@ A state control area (here, Karnataka/KPTCL SLDC) must draw from the inter-state
 - **Under-drawal** is a potentially costly or low-value surplus condition; what it settles at depends on the applicable DSM provisions, the frequency and the volume band (§3.4).
 - Large deviations also push frequency out of the IEGC band (49.90–50.05 Hz) and can overload transmission corridors.
 
-Demand response (DR) closes the gap by paying flexible consumers, batteries and generators to move their output for a few blocks. The platform decides **who, how much, when and at what cost**. It then dispatches, proves delivery and settles payment, and uses rotational load shedding only as the last resort.
+Demand response (DR) closes the gap by paying flexible consumers, batteries and generators to move their output for a few blocks. The platform decides **who, how much, when and at what cost**. It then dispatches, proves delivery and settles payment, and uses load rotation only as the last resort.
 
 ---
 
@@ -38,7 +38,7 @@ SCADA / SLDC feed ─► quality ─► state estimate ─► assess ─► dete
 | Assess | ACE, severity, direction, requirement, DSM exposure |
 | Detect | Rule and anomaly alarms with on/off delays, correlated into incidents |
 | Decide | Open or revise a DR event: flexibility → LP optimiser → Digital Twin → autonomy policy |
-| Shed | Roster manager proposes rotational shedding for the residual that flexibility can't cover |
+| Rotate | Roster manager proposes load rotation for the residual that flexibility can't cover |
 | Act | HMAC-authenticated setpoint commands, acks, timeouts, dead-band |
 | M&V / settle | Delivered vs expected energy, avoided DSM, payments, reliability learning |
 | Audit | Every step appended to a SHA-256 hash chain |
@@ -60,7 +60,7 @@ A 1-second software loop is **not** 1-second grid telemetry. Measurement, contro
 | RTM purchase | IEX: sessions every 30 min, delivery in the 4 blocks after the session | Cannot deliver inside the 4-block horizon (§5.3) |
 | DR event opens after 60 s | **Application policy** | Tunable by severity, telemetry quality and tested false-alarm rate |
 | Command ack timeout 90 s | **Application comms timeout** | Not a delivery guarantee: ack, first response, full output and delivered energy are tracked separately (§5.7) |
-| Shedding proposal after 120 s | **Application trigger** | Separate from, and never a substitute for, approved UFR / df/dt protection (§7) |
+| Load-rotation proposal after 120 s | **Application trigger** | Separate from, and never a substitute for, approved UFR / df/dt protection (§7) |
 
 Confirm exchange rules and grid-code provisions in force at implementation time.
 
@@ -162,7 +162,7 @@ The rule table is **versioned configuration**. Each table records its regulation
 edge_k = min(pct_k % × schedule, cap_k)       (edges never decrease; the last band is open-ended)
 
 shipped default (structure of the 2024 general-buyer rules — numbers illustrative):
-  band 1:  up to min(10% of schedule, 100 MW)      ← the tolerance band; also the shedding trigger (§7)
+  band 1:  up to min(10% of schedule, 100 MW)      ← the tolerance band; also the load-rotation trigger (§7)
   band 2:  up to min(15% of schedule, 200 MW)
   band 3:  beyond
 ```
@@ -249,10 +249,10 @@ The production ML ensemble (LightGBM / TFT) can replace this model behind the sa
 **Underlying requirement** is what is actually needed, with our own actions backed out, so the event doesn't switch itself off while it is working:
 
 ```
-underlying = (ACE in the event's direction) + MW our resources are delivering now + MW currently shed (UP only)
+underlying = (ACE in the event's direction) + MW our resources are delivering now + MW currently rotated out (UP only)
 ```
 
-Shed MW is counted on purpose: paid flexibility stays sized to the full over-drawal, so load shedding is what gets released first.
+Rotated-out MW is counted on purpose: paid flexibility stays sized to the full over-drawal, so load rotation is what gets released first.
 
 Each revision runs these steps:
 
@@ -492,13 +492,13 @@ reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
 
 ---
 
-## 7. Last resort: load shedding and rostering
+## 7. Last resort: load rotation
 
-**Order of resort for over-drawal:** paid flexibility first (DR, BESS, generation, RTM). Only the **residual** (the optimiser's unserved MW in block 1, with MW already shed counted in) can become a shedding order. Under-drawal is never handled by shedding.
+**Order of resort for over-drawal:** paid flexibility first (DR, BESS, generation, RTM). Only the **residual** (the optimiser's unserved MW in block 1, with MW already rotated out counted in) can become a load-rotation order. Under-drawal is never handled by load rotation.
 
 > **Three separate functions.** (1) The **DR optimiser** recommends the lowest-cost feasible response from enrolled resources. (2) The **load-management proposal** recommends a feeder-level residual action under the approved roster and approval rules. (3) **Independent protection** — under-frequency (UFR) and df/dt relays — operates under the approved protection scheme and the applicable Regional Power Committee settings. The platform never delays, disables or overrides it. The 49.80 Hz threshold below is a decision policy, not a relay setting.
 >
-> **Demo roster.** The shipped roster is demonstration data: groups built from 220 kV stations, a flat 30% sheddable share, and generated protected-feeder counts. It cannot establish that any real feeder is safe to open. Replace it with the DISCOM's verified feeder-level records (measured loads, protected classifications, approved roster, switching authority) before use. The Load Shedding page shows a DEMO ROSTER badge until then.
+> **Demo roster.** The shipped roster is demonstration data: groups built from 220 kV stations, a flat 30% rotatable share, and generated protected-feeder counts. It cannot establish that any real feeder is safe to open. Replace it with the DISCOM's verified feeder-level records (measured loads, protected classifications, approved roster, switching authority) before use. The Load Rotation page shows a DEMO ROSTER badge until then.
 
 ### Trigger
 
@@ -517,16 +517,16 @@ The band follows the DSM rule table in force (its first band). An engineer can o
 ### Roster groups
 
 - Each DISCOM's 220 kV stations are split north to south into groups (A, B, C …) of about **4 stations**.
-- A group's sheddable MW = Σ (its share of each parent bus's load) × **30%**. The 30% is the non-essential 11 kV feeder share.
-- **Never shed:** hospitals, water works, railway traction, defence.
+- A group's rotatable MW = Σ (its share of each parent bus's load) × **30%**. The 30% is the non-essential 11 kV feeder share.
+- **Never rotated out:** hospitals, water works, railway traction, defence.
 
 ### Fair selection
 
 1. Split the MW across DISCOMs in proportion to their load.
 2. Repeatedly take the DISCOM furthest below its quota.
-3. Within that DISCOM, take the eligible group with the fewest minutes shed today, then the one restored longest ago.
+3. Within that DISCOM, take the eligible group with the fewest minutes off today, then the one restored longest ago.
 
-A group is eligible only if it is not already shed, has at least 10 min of its daily allowance left, and has rested at least one full spell since it was restored.
+A group is eligible only if it is not already rotated out, has at least 10 min of its daily allowance left, and has rested at least one full spell since it was restored.
 
 ### Limits and rotation
 
@@ -535,13 +535,13 @@ A group is eligible only if it is not already shed, has at least 10 min of its d
 | Spell length | ≤ 45 min (a group at the end of its spell is swapped for the next fair group: **rotation**) |
 | Daily limit | ≤ 120 min per group |
 | Rest after a spell | One full spell (45 min) |
-| Top-up | If the residual grows by > 50 MW beyond what is shed, more groups are added under the same order |
-| Trim | If more than needed is shed (surplus > smallest group + 40 MW), give back the **largest group that still leaves enough off** |
+| Top-up | If the residual grows by > 50 MW beyond what is rotated out, more groups are added under the same order |
+| Trim | If more than needed is rotated out (surplus > smallest group + 40 MW), give back the **largest group that still leaves enough off** |
 | Restore | When the over-drawal is gone, restore in stages: one group every **120 s**, longest-out first, to avoid a rebound spike |
 
-**Energy not served** = ∫ shed MW dt (MWh).
+**Energy not served** = ∫ rotated-out MW dt (MWh).
 
-**Fairness** = most minus least minutes shed today, across groups.
+**Fairness** = most minus least minutes off today, across groups.
 
 ---
 
@@ -589,7 +589,7 @@ Alarm lifecycle:
 | --- | --- | --- |
 | Top bar | Data pill | Data confidence (§3.1), plus the worst source age when > 10 s; the tooltip lists ages for frequency, schedule, breakers and the SLDC fetch, and every active veto |
 | Top bar | Block clock | Time block n of 96 (15-min DSM blocks); the bar shows progress through the day |
-| Overview → **Grid need** | Need | Event requirement, or the live requirement when no event is open. Coverage bar = delivering (green) + shed (red) vs the need; gap = the rest |
+| Overview → **Grid need** | Need | Event requirement, or the live requirement when no event is open. Coverage bar = delivering (green) + rotated out (red) vs the need; gap = the rest |
 | Overview → Grid need | ACE, DSM/block | §3.3 and §3.4, for the current block |
 | DR Events → **Options** | Total, saves, coverage, acts in | §5.3 and §5.4 |
 | DR Events → Safety | Checks | §5.5 |
@@ -597,8 +597,8 @@ Alarm lifecycle:
 | DR Events → Settlement | Payment, PF, ledger, net savings | §6 |
 | Grid | Demand Δ/blk | Demand change over the last 15 min of grid time |
 | Grid | Most loaded corridor | max(\|flow\| / limit) from the DC power flow |
-| Load Shedding | Uncovered OD vs limit | §7 trigger: residual vs DSM band |
-| Load Shedding | Fairness, max x/120 | §7 |
+| Load Rotation | Uncovered OD vs limit | §7 trigger: residual vs DSM band |
+| Load Rotation | Fairness, max x/120 | §7 |
 | Forecast | ACE / Demand / RE next block | P50 for block 1 (§4); sparkline = P50 over the 8-block horizon |
 | Forecast | Peak line loading (2 h) | Highest forecast loading across blocks 1, 2 and 4 |
 | Forecast | MAPE | Mean absolute % error of the 1-block demand forecast |
@@ -667,7 +667,7 @@ new reliability = 0.8 · 0.90 + 0.2 · 0.76   = 0.872
 
 The next event will count on 87.2% of their available MW.
 
-**6. If flexibility runs out.** Suppose 180 MW stays uncovered for 2 minutes. 180 > 100 MW (band 1), so a **180 MW** shedding order is proposed and waits for shift-in-charge approval. On approval, roster groups are picked across DISCOMs by load share, least-shed first, and rotated every ≤ 45 minutes until the over-drawal is covered. Load is then restored one group every 2 minutes. With the demo roster, this demonstrates the workflow only.
+**6. If flexibility runs out.** Suppose 180 MW stays uncovered for 2 minutes. 180 > 100 MW (band 1), so a **180 MW** load-rotation order is proposed and waits for shift-in-charge approval. On approval, roster groups are picked across DISCOMs by load share, least-rotated first, and rotated every ≤ 45 minutes until the over-drawal is covered. Load is then restored one group every 2 minutes. With the demo roster, this demonstrates the workflow only.
 
 ---
 

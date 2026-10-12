@@ -150,7 +150,7 @@ function Toast({ t }: { t: Notice }) {
                 dismiss(t.id)
               }}
             >
-              <Power className="size-3.5" /> {t.title.startsWith('Load shedding proposed') ? 'Review & approve' : 'Open roster'}
+              <Power className="size-3.5" /> {t.title.startsWith('Load rotation proposed') ? 'Review & approve' : 'Open roster'}
             </Button>
           </div>
         )}

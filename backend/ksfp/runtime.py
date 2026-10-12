@@ -342,7 +342,7 @@ class Runtime:
             if o:
                 self.dirty_docs[("shed_order", o["id"])] = (o["created"], o["state"], o)
             if kind == "proposed":
-                al = self.alarms.event(Condition(f"event:SHED:{ref}", "SHED_PROPOSED", "BALANCE", 1, f"Load shedding proposed: {o['mw']:.0f} MW", "Flexibility exhausted — shift-in-charge approval required"), now)
+                al = self.alarms.event(Condition(f"event:SHED:{ref}", "SHED_PROPOSED", "BALANCE", 1, f"Load rotation proposed: {o['mw']:.0f} MW", "Flexibility exhausted — shift-in-charge approval required"), now)
                 self.dirty_docs[("alarm", al.id)] = (al.raised_at, al.state, al.to_dict())
             elif kind == "exhausted":
                 al = self.alarms.event(Condition(f"event:SHEDX:{ref}:{now:.0f}", "ROSTER_EXHAUSTED", "BALANCE", 1, "Roster exhausted", ev["msg"]), now)

@@ -108,7 +108,7 @@ Time comes from an injectable clock. Against real field systems it is wall-clock
 | L0 | Monitor | Detect, forecast and alarm only. No decisions are generated. |
 | L1 | Advisory | Decisions are generated. **Every** command needs operator approval. |
 | L2 | Supervised autonomy *(default)* | Decisions inside the **autonomy envelope** execute automatically. Anything outside it waits for approval. |
-| L3 | Full autonomy (state DR) | All state-mode resources execute automatically. ADMS / load shedding **always** requires a person. |
+| L3 | Full autonomy (state DR) | All state-mode resources execute automatically. ADMS / load rotation **always** requires a person. |
 
 **Envelope (configurable, versioned)**
 - Resource classes allowed to run automatically: BESS and generation by default.

@@ -159,18 +159,18 @@ export const useNotify = create<NotifyState>((set, get) => ({
       push(set, {
         kind: 'shed',
         tone: 'bad',
-        title: `Load shedding proposed · ${fmtMW(o?.mw ?? 0)}`,
+        title: `Load rotation proposed · ${fmtMW(o?.mw ?? 0)}`,
         body: `${ev.msg}${o?.needs_dual ? ' Dual authorisation required.' : ''}`,
         shedId: o?.id,
         sticky: true,
       })
-    else if (kind === 'activated') push(set, { kind: 'shed', tone: 'bad', title: 'Load shedding active', body: ev.msg, shedId: o?.id })
+    else if (kind === 'activated') push(set, { kind: 'shed', tone: 'bad', title: 'Load rotation active', body: ev.msg, shedId: o?.id })
     else if (kind === 'rotated' || kind === 'extended')
-      push(set, { kind: 'shed', tone: 'warn', title: kind === 'rotated' ? 'Roster rotation' : 'Shedding extended', body: ev.msg, shedId: o?.id })
+      push(set, { kind: 'shed', tone: 'warn', title: kind === 'rotated' ? 'Roster rotation' : 'Rotation extended', body: ev.msg, shedId: o?.id })
     else if (kind === 'exhausted') push(set, { kind: 'shed', tone: 'bad', title: 'Roster exhausted', body: ev.msg, shedId: o?.id, sticky: true })
     else if (kind === 'completed') push(set, { kind: 'shed', tone: 'good', title: 'All feeders restored', body: ev.msg, shedId: o?.id })
     else if (kind === 'rejected' || kind === 'lapsed')
-      push(set, { kind: 'shed', tone: 'info', title: kind === 'rejected' ? 'Shedding rejected' : 'Shedding proposal lapsed', body: ev.msg, shedId: o?.id })
+      push(set, { kind: 'shed', tone: 'info', title: kind === 'rejected' ? 'Rotation rejected' : 'Rotation proposal lapsed', body: ev.msg, shedId: o?.id })
   },
 
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id), items: s.items.map((x) => (x.id === id ? { ...x, read: true } : x)) })),
