@@ -88,3 +88,24 @@ def test_fair_rotation_prefers_the_least_burdened_group_and_explains_why():
     b.minutes_today = ro.policy.max_daily_min
     ro.select(150, load, now, order=o)
     assert any(s["group"] == b.id and s["action"] == "excluded" and "daily limit" in s["reason"] for s in o.selection)
+
+
+def test_scenario_rotation_case_equals_flexibility_when_nothing_is_rotated():
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from ksfp.core.settings import Settings
+    from ksfp.gridflex.coordinator import scenario
+    from ksfp.main import create_app
+
+    app = create_app(Settings(run_loops=False, database_url="sqlite+aiosqlite:///:memory:", jwt_secret="t" * 32, time_scale=1, auto_disturbances=False))
+    with TestClient(app) as c:
+        rt = c.app.state.runtime
+        asyncio.run(asyncio.sleep(0))
+        rt.tick()
+        small = scenario(rt, 200, 4, 70)  # flexibility covers it: no rotation
+        flex, rot = small["cases"][1], small["cases"][2]
+        assert rot["rotation_mw"] == 0 and abs(rot["utility_cost_rs"] - flex["utility_cost_rs"]) <= 1
+        none = small["cases"][0]
+        assert none["residual_mw"] == 200 and flex["utility_cost_rs"] < none["utility_cost_rs"]

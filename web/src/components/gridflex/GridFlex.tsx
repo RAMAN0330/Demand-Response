@@ -24,6 +24,7 @@ export interface GfLedger {
   event_id: string | null
   direction: 'UP' | 'DOWN'
   shortage_mw: number
+  bess: { commanded_mw: number; metered_mw: number }
   industrial: { offered_mw: number; activated_mw: number; metered_mw: number; verified_mw: number }
   other_flex: { commanded_mw: number; metered_mw: number }
   rotation: {
@@ -112,6 +113,16 @@ interface Industrial {
 }
 
 const PHASES = ['DETECTED', 'ASSESSED', 'PROPOSED', 'APPROVED', 'ACTIVATING', 'VERIFYING', 'RECOVERY', 'SETTLED']
+const SHORT: Record<string, string> = {
+  DETECTED: 'Detect',
+  ASSESSED: 'Assess',
+  PROPOSED: 'Propose',
+  APPROVED: 'Approve',
+  ACTIVATING: 'Activate',
+  VERIFYING: 'Verify',
+  RECOVERY: 'Recover',
+  SETTLED: 'Settle',
+}
 const EXC: Record<string, string> = {
   REJECTED: 'bg-slate-200 text-slate-700',
   CANCELLED: 'bg-slate-200 text-slate-700',
@@ -127,16 +138,17 @@ export function CoordinationView({ L }: { L: GfLedger }) {
   const idx = PHASES.indexOf(L.phase)
   const steps = [
     { label: 'Shortage', planned: L.shortage_mw, measured: L.shortage_mw, cls: 'bg-amber-500', sign: '' },
+    { label: '1 · BESS', planned: L.bess.commanded_mw, measured: L.bess.metered_mw, cls: 'bg-violet-500', sign: '−', note: 'metered' },
     {
-      label: 'Industrial flexibility',
+      label: '2 · Industrial flexibility',
       planned: L.industrial.activated_mw,
       measured: L.industrial.verified_mw,
       cls: 'bg-emerald-500',
       sign: '−',
       note: 'verified = min(max(0, B − M), A)',
     },
-    { label: 'Other flexibility (BESS, generation, DR)', planned: L.other_flex.commanded_mw, measured: L.other_flex.metered_mw, cls: 'bg-sky-500', sign: '−', note: 'metered' },
-    { label: 'Load rotation', planned: L.rotation.planned_mw, measured: L.rotation.measured_mw, cls: 'bg-rose-500', sign: '−', note: 'metered relief' },
+    { label: '3 · Other flexibility (generation, DR, RTM)', planned: L.other_flex.commanded_mw, measured: L.other_flex.metered_mw, cls: 'bg-sky-500', sign: '−', note: 'metered' },
+    { label: '4 · Load rotation', planned: L.rotation.planned_mw, measured: L.rotation.measured_mw, cls: 'bg-rose-500', sign: '−', note: 'metered relief' },
     { label: 'Residual', planned: L.rotation_residual.residual_mw, measured: L.residual_mw, cls: L.residual_mw > 1 ? 'bg-rose-600' : 'bg-slate-300', sign: '=' },
   ]
   const scale = Math.max(L.shortage_mw, ...steps.map((s) => s.planned), 1)
@@ -156,7 +168,9 @@ export function CoordinationView({ L }: { L: GfLedger }) {
             {PHASES.map((p, i) => (
               <div key={p} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                 <div className={cn('h-1.5 w-full rounded-full', exc ? 'bg-slate-200' : i < idx ? 'bg-sky-500' : i === idx ? 'animate-pulse bg-sky-600' : 'bg-slate-200')} />
-                <span className={cn('truncate text-[9.5px] font-semibold tracking-wide', i === idx && !exc ? 'text-sky-700' : 'text-slate-400')}>{p}</span>
+                <span title={p} className={cn('truncate text-[9.5px] font-semibold', i === idx && !exc ? 'text-sky-700' : 'text-slate-400')}>
+                  {SHORT[p]}
+                </span>
               </div>
             ))}
           </div>
@@ -174,7 +188,10 @@ export function CoordinationView({ L }: { L: GfLedger }) {
         </div>
         <div className="min-h-0 flex-1 rounded-xl border border-slate-200/80 bg-white/70 p-3">
           <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600">
-            <span>Shortage ledger — planned / commanded vs measured</span>
+            <span>
+              Shortage ledger — planned / commanded vs measured
+              {L.direction === 'DOWN' && <span className="ml-1.5 font-normal text-sky-700">(surplus event: load increase; rotation never applies)</span>}
+            </span>
             <span className="font-normal text-slate-400">an instruction is not a reduction</span>
           </div>
           <div className="space-y-2.5">

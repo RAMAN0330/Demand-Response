@@ -64,11 +64,15 @@ def ledger(rt) -> dict:
     ind_cmd = sum(v for k, v in live.items() if k in ind_ids)
     ind_meter = sum(st.get(k, {}).get("mw", 0.0) for k, v in live.items() if k in ind_ids and v > 0)
     ind_ver = _industrial_verified(rt)
-    other_cmd = sum(v for k, v in live.items() if k not in ind_ids)
-    other_meter = sum((v if k == "RTM" else st.get(k, {}).get("mw", 0.0)) for k, v in live.items() if k not in ind_ids and v > 0)
+    t = topology()
+    bess_ids = {x["id"] for x in t.assets if x["type"] == "bess"}
+    bess_cmd = sum(v for k, v in live.items() if k in bess_ids)
+    bess_meter = sum(st.get(k, {}).get("mw", 0.0) for k, v in live.items() if k in bess_ids and v > 0)
+    other_cmd = sum(v for k, v in live.items() if k not in ind_ids and k not in bess_ids)
+    other_meter = sum((v if k == "RTM" else st.get(k, {}).get("mw", 0.0)) for k, v in live.items() if k not in ind_ids and k not in bess_ids and v > 0)
     sm = rt.roster.summary(rt.unshed_load(a.state.bus_load))
     rot_planned, rot_measured = sm["planned_mw"], sm["active_mw"]
-    residual = max(0.0, shortage - ind_ver - other_meter - rot_measured) if up else 0.0
+    residual = max(0.0, shortage - bess_meter - ind_ver - other_meter - rot_measured) if up else 0.0
     emergency = a.severity == "EMERGENCY" or a.state.frequency < 49.80
     esc = []
     if emergency:
@@ -87,6 +91,7 @@ def ledger(rt) -> dict:
         "event_id": d.id if d else None,
         "direction": "UP" if up else "DOWN",
         "shortage_mw": round(shortage, 1),
+        "bess": {"commanded_mw": round(bess_cmd, 1), "metered_mw": round(bess_meter, 1)},
         "industrial": {"offered_mw": round(reg.offered_mw(now), 1), "activated_mw": round(ind_cmd, 1), "metered_mw": round(ind_meter, 1), "verified_mw": round(ind_ver, 1)},
         "other_flex": {"commanded_mw": round(other_cmd, 1), "metered_mw": round(other_meter, 1)},
         "rotation": {"planned_mw": rot_planned, "measured_mw": rot_measured, "order": o, "groups_out": sm["groups_out"]},
@@ -160,8 +165,11 @@ def scenario(rt, shortage_mw: float, duration_blocks: int, participation_pct: fl
     rot_real = sum(ro.group_mw(g, unshed) for g in picked) * 0.92  # typical realisation of planned relief
     hours = B * BLOCK_H
     left = max(0.0, resid - rot_real)
-    dsm_left = sum(dsm_charge(left, s.schedule_mw, s.frequency, s.prices, rt.dsm_cfg).amount_rs for _ in range(len(steady)))
-    rot_cost = flex_cost - plan.costs["residual_dsm_rs"] + dsm_left
+    # rotation acts on the steady blocks only: swap their DSM for the DSM left after rotating, block by block
+    first = 1 if B > 1 else 0
+    dsm = lambda dev: dsm_charge(dev, s.schedule_mw, s.frequency, s.prices, rt.dsm_cfg).amount_rs  # noqa: E731
+    swap = sum(dsm(shortage_mw - plan.supplied[b] - rot_real) - dsm(shortage_mw - plan.supplied[b]) for b in range(first, B))
+    rot_cost = flex_cost + swap
     unserved = min(rot_real, resid) * hours
     cases = [
         {"id": "none", "label": "No action", "utility_cost_rs": round(no_action), "residual_mw": round(shortage_mw, 1), "industrial_mw": 0, "other_flex_mw": 0, "rotation_mw": 0, "interruption_mwh": 0, "interruption_impact_rs": 0, "groups": 0, "stations": 0, "beyond_band": shortage_mw > band},
