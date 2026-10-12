@@ -219,7 +219,7 @@ function DrStrip({ open, onToggle }: { open: boolean; onToggle: () => void }) {
     )
   return (
     <div className="flex shrink-0 gap-2">
-      <div className="pointer-events-auto grid min-w-0 flex-1 grid-cols-[minmax(0,3fr)_repeat(6,minmax(0,1fr))] gap-2 2xl:grid-cols-[minmax(0,2.4fr)_repeat(6,minmax(0,1fr))]">
+      <div className="pointer-events-auto grid min-w-0 flex-1 grid-cols-[minmax(0,2.4fr)_repeat(5,minmax(0,1fr))] gap-2 2xl:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
         <GridNeedCard className={g} delivering={c.delivering} onOpen={() => go('analysis')} />
         <KpiCard
           className={g}
