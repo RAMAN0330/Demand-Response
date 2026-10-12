@@ -4,7 +4,7 @@ ADRMS — Automated Demand Response Management System.
 
 This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated — the maths, the reasoning behind each choice, and worked numbers.
 
-> **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or load rotation are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§12).
+> **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or load rotation are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§13).
 >
 > **Illustrative values.** DSM multipliers, prices, participant bids, reliabilities, the frequency bias and the load-rotation roster ship as demonstration data. Which thresholds come from the grid code and which are this application's own policy is marked throughout.
 
@@ -308,7 +308,7 @@ g(t)   = clamp((t − d) / τ, 0, 1)       d = response delay (min), τ = availa
 E_i,b  = R_i · φ_i,b · x_i,b · 0.25 h   expected energy in block b
 ```
 
-For example, a 12-minute response with an instant ramp gives φ = 0.2 in block 1 and 1.0 from block 2. A resource already delivering has φ = 1. The earliest usable block is the first with φ > 0. The remaining duration budget = max duration − blocks already used.
+For example, a 12-minute response with an instant ramp gives φ = 0.2 in block 1 and 1.0 from block 2. A resource already delivering keeps full credit for what it delivers now, but any **increase** is a new instruction: the plant re-plans, so the increment goes through the response delay and ramp again — `φ_b = (current + φ_inc,b · (available − current)) / available`. The earliest usable block is the first with φ > 0. The remaining duration budget = max duration − blocks already used.
 
 Still to be learned per resource: time to first response, to 50% and to full output; sustained duration and availability windows; recovery and rebound profile; measurement, gateway and command delays; and proven reliability from metered output (not acknowledgements).
 
@@ -318,6 +318,18 @@ Still to be learned per resource: time to first response, to 50% and to full out
 
 A network-constrained, multi-block linear program, solved with HiGHS. Horizon = 4 blocks (1 hour), re-solved every block (model-predictive control).
 
+**Dispatch priority.** Resources are used in strict tiers:
+
+| Tier | Resources | Why this order |
+| --- | --- | --- |
+| 1 | **BESS** | Fastest, no consumer impact, fully controllable |
+| 2 | **Industrial flexibility** | Contracted envelopes inside accepted offers (§11) |
+| 3 | Other paid flexibility | Generation re-dispatch, interruptible, shiftable, DER |
+| 4 | RTM purchase | About 1 h lead (§2.1) |
+| last | **Load rotation** | Not in the optimiser: only the residual after every tier, with approval (§7) |
+
+Each tier is used fully — up to network, ramp, state-of-charge, response-time and offer limits — before the next is touched; within a tier the cheapest goes first. This is enforced by a tier step π added per expected MWh, larger than the widest cost spread between resources, so priority dominates cost across tiers but cost still orders resources inside a tier. Reported costs never include π.
+
 **Variables**
 - `x[i,b]` — MW commanded (setpoint) from resource i in block b; expected delivery is `R_i · φ_i,b · x[i,b]`
 - `s[b]` — unserved requirement
@@ -326,8 +338,8 @@ A network-constrained, multi-block linear program, solved with HiGHS. Horizon = 
 **Objective**
 
 ```
-min  Σ (pay + rebound)_i · R_i · φ_i,b · x[i,b] · 0.25 h · 1000   ← cost of expected delivered energy
-   + λ · Σ s[b]                                                     ← unserved, λ = max(3·NR, ₹25/kWh) per MWh
+min  Σ (pay + rebound + π·(tier_i − 1))_i · R_i · φ_i,b · x[i,b] · 0.25 h · 1000   ← priority, then cost
+   + λ · Σ s[b]                                     ← unserved; λ above the last tier, so a need is never left unserved while a lower tier has room
    + μ · Σ v[l,b]                                                   ← overload, μ = 10⁷ (≫ λ)
 ```
 
@@ -376,7 +388,7 @@ Each strategy is the same LP restricted to a set of resource types:
 | **Re-dispatch generation** | Intra-state thermal/hydro headroom | When cheap headroom sits on unconstrained buses |
 | **BESS only** | Grid batteries | Fast and short; limited by SoC |
 | **Demand response only** | Interruptible, shiftable, industrial, DER | Peaks where consumer flexibility is cheapest |
-| **Optimal mix** | All of the above, co-optimised under network limits | Normally chosen; dispatched |
+| **Priority mix** | All of the above in priority order (BESS → industrial → others → RTM) under network limits | Chosen and dispatched |
 
 The Options tab pins the chosen plan first and ranks the rest by **total cost**. For each option it shows:
 - paid cost vs DSM still owed;
@@ -494,7 +506,16 @@ reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
 
 ## 7. Last resort: load rotation
 
-**Order of resort for over-drawal:** paid flexibility first (DR, BESS, generation, RTM). Only the **residual** (the optimiser's unserved MW in block 1, with MW already rotated out counted in) can become a load-rotation order. Under-drawal is never handled by load rotation.
+**Order of resort for over-drawal:** BESS, then industrial flexibility, then other paid flexibility (§5.3). Only the **residual** can become a load-rotation order. Under-drawal is never handled by load rotation.
+
+**Residual for rotation** — measured wherever possible:
+
+```
+residual = planned shortfall that persists after ramp-in            min(residual block 1, residual block 2)
+         + measured under-delivery after each response window       Σ (R·setpoint − metered)⁺ for commands past their window
+```
+
+A gap that flexibility closes within minutes never triggers rotation, and a resource that under-delivers is counted as soon as its response window has passed. MW already rotated out stay counted in, so rotation is what gets released first.
 
 > **Three separate functions.** (1) The **DR optimiser** recommends the lowest-cost feasible response from enrolled resources. (2) The **load-management proposal** recommends a feeder-level residual action under the approved roster and approval rules. (3) **Independent protection** — under-frequency (UFR) and df/dt relays — operates under the approved protection scheme and the applicable Regional Power Committee settings. The platform never delays, disables or overrides it. The 49.80 Hz threshold below is a decision policy, not a relay setting.
 >
@@ -524,7 +545,14 @@ The band follows the DSM rule table in force (its first band). An engineer can o
 
 1. Split the MW across DISCOMs in proportion to their load.
 2. Repeatedly take the DISCOM furthest below its quota.
-3. Within that DISCOM, take the eligible group with the fewest minutes off today, then the one restored longest ago.
+3. Within that DISCOM, take the eligible group with the **lowest fairness score**:
+
+```
+F_j = 0.5·H_j + 0.3·N_j + 0.2·D_j          (over the last 7 days; each term normalised by its maximum across groups)
+H = interruption hours,  N = number of interruptions,  D = length of the latest interruption
+```
+
+Hard exclusions always win over the score. Every pick, every exclusion (daily limit reached, resting until hh:mm) and the next groups in line are recorded with their reason and shown on the order.
 
 A group is eligible only if it is not already rotated out, has at least 10 min of its daily allowance left, and has rested at least one full spell since it was restored.
 
@@ -537,7 +565,8 @@ A group is eligible only if it is not already rotated out, has at least 10 min o
 | Rest after a spell | One full spell (45 min) |
 | Top-up | If the residual grows by > 50 MW beyond what is rotated out, more groups are added under the same order |
 | Trim | If more than needed is rotated out (surplus > smallest group + 40 MW), give back the **largest group that still leaves enough off** |
-| Restore | When the over-drawal is gone, restore in stages: one group every **120 s**, longest-out first, to avoid a rebound spike |
+| Restore | When the over-drawal is gone, restore in stages, longest-out first: one group every **120 s**, tightened to (time to the earliest spell limit ÷ groups still out) so no two groups are forced back together |
+| Planned vs measured | Relief is **metered**, not assumed: if it stays below 90% of the planned MW for 2 min, the order escalates and the residual is re-estimated from metering (top-ups follow the approved order) |
 
 **Energy not served** = ∫ rotated-out MW dt (MWh).
 
@@ -599,6 +628,10 @@ Alarm lifecycle:
 | Grid | Most loaded corridor | max(\|flow\| / limit) from the DC power flow |
 | Load Rotation | Uncovered OD vs limit | §7 trigger: residual vs DSM band |
 | Load Rotation | Fairness, max x/120 | §7 |
+| Load Rotation | Group tooltip F, order reasons, metered vs planned relief | §7 |
+| Programs → C&I | Offers, baseline vs meter, M&V | §11 |
+| DR Events → Coordination | Lifecycle, shortage ledger | §11 |
+| What-if → Shortage & rotation | Three cases | §11 |
 | Forecast | ACE / Demand / RE next block | P50 for block 1 (§4); sparkline = P50 over the 8-block horizon |
 | Forecast | Peak line loading (2 h) | Highest forecast loading across blocks 1, 2 and 4 |
 | Forecast | MAPE | Mean absolute % error of the 1-block demand forecast |
@@ -606,7 +639,85 @@ Alarm lifecycle:
 
 ---
 
-## 11. Worked example
+## 11. GridFlex: industrial flexibility and coordinated load rotation
+
+GridFlex is part of ADRMS, not a separate product: industrial flexibility is the preferred controllable response after batteries, and load rotation is the governed fallback for what neither can cover.
+
+### 11.1 Industrial participants and offers
+
+An industry does not hand the grid an off-switch. It declares a **flexibility envelope** per time window:
+
+| Offer term | Meaning |
+| --- | --- |
+| MW | Reduction offered (≤ the declared flexible range of its processes) |
+| Window | Hours it applies (e.g. 17:00–23:30) |
+| Response / min activation / max duration / recovery | Timing the plant can safely honour |
+| Price ₹/MWh | Paid per verified MWh |
+| Availability ₹/MW·h | Only if the programme pays for being available |
+| Reliability | From metered past performance |
+| Restrictions | e.g. no activation during a critical production stage |
+
+Each industry lists its flexible processes (process load trim, batch or furnace rescheduling, non-critical HVAC and pumping) with MW, response, duration and restriction. **ADRMS may dispatch an industry only inside an accepted offer, and only on that offer's terms** (MW cap, price, response, duration); otherwise it is excluded with the reason ("no accepted offer covering this window", "offer awaiting acceptance"). Committed programme offers are accepted under the programme; voluntary offers wait for an operator.
+
+### 11.2 Baseline and verified delivery (M&V)
+
+Per participant, per 15-minute block t of an event:
+
+```
+B_t = baseline demand        mean metered demand over the 4 blocks before the event, bounded to ±10% of the declared level
+M_t = metered demand         block average from the revenue meter (independent of the DR gateway)
+R_t = max(0, B_t − M_t)      estimated reduction
+A_t = accepted reduction     dispatched MW, capped at the offer
+V_t = min(R_t, A_t)          verified reduction
+E   = Σ V_t · Δt             delivered energy (MWh)
+pay = E · P + availability − adjustment
+adjustment = − E·P·(1 − PF),  PF = 1 (≥ 90% of accepted energy), linear 50–90%, 0 (≤ 50%)
+```
+
+Example: B = 600 MW, A = 60 MW. Block 1 metered 560 → R = 40, V = 40. Block 2 metered 530 → R = 70, V = 60 (capped). E = (40 + 60) × 0.25 = 25 MWh of 30 MWh accepted (83%, PF = 0.83). At ₹4,000/MWh and ₹100/MW·h availability: pay = 1,00,000 + 3,000 − 16,667 ≈ ₹86,333.
+
+A difference between baseline and meter is not automatically proof of delivery, so the baseline method is versioned and every record can be **disputed** (payment held) and resolved with an audited adjustment. This M&V — not gateway telemetry — is the settlement of record for industrial participants.
+
+### 11.3 One shortage ledger
+
+```
+  shortage            the over-drawal the event is sized for
+− industrial          verified (min of baseline − meter and accepted)
+− other flexibility   metered (BESS, generation, other DR)
+− load rotation       metered relief
+= residual            always from measured values — a 30 MW instruction is not a 30 MW reduction
+```
+
+Planned or commanded values sit beside the measured ones and are replaced as soon as metering is available. Escalations are raised for lagging resources, rotation delivering under plan, and a residual beyond the band with no order. **Emergencies are not a rigid sequence:** below 49.80 Hz or in EMERGENCY, authorised control-room procedure and independent UFR / df/dt protection take precedence over offers and the roster.
+
+### 11.4 Event lifecycle
+
+```
+DETECTED → ASSESSED → PROPOSED → APPROVED → ACTIVATING → VERIFYING → RECOVERY → SETTLED
+exceptions: REJECTED · CANCELLED · FAILED (every command failed) · DISPUTED
+```
+
+Phases come from the event state, its commands' clocks (acknowledged, first response, full output) and settlement. They only move forward within an event — a re-solve that briefly re-activates one resource does not send it back — except that a new approval round returns it to PROPOSED. Every transition is time-stamped.
+
+### 11.5 Scenario simulator
+
+On a copy of the live state, for a chosen shortage, duration and industrial participation (50 / 70 / 90%):
+
+| Case | What it computes |
+| --- | --- |
+| No action | DSM on the full shortage over the duration |
+| Flexibility first | The priority plan with industrial capacity scaled by participation: payments, rebound, DSM still owed, persistent residual |
+| Rotation-assisted | The same, plus rotating the persistent residual (realised at ~92% of plan): groups and stations affected, unserved MWh, and its impact at an illustrative interruption cost (₹/kWh, set per utility study) |
+
+### 11.6 Measures
+
+Shortage MW; industrial offered / activated / verified MW; residual MW; rotation planned / measured MW; flexibility cost per delivered MWh; interruption hours and count per roster group (7 days); forecast MAPE; rebound MW; event success rate (delivered ≥ 90% of expected); M&V disputes.
+
+> Programme values (prices, windows, availability rates, interruption cost) are demonstration data. Participation, baselines, compensation and dispute rules must come from the approved programme and the applicable State Commission regulations; until authorised, switching and dispatch stay with authorised operators.
+
+---
+
+## 12. Worked example
 
 Situation:
 
@@ -651,7 +762,7 @@ expected  = available MW · 0.90         (reliability shrinks the MW counted on,
 If it responds in 12 minutes, block 1 counts only φ = 0.2 of its setpoint.
 
 **4. Event.** The condition holds for 60 s, so an event opens.
-- The LP fills the 430 MW of expected delivery cheapest-first, within line limits, ramps, SoC and each resource's response trajectory.
+- The LP fills the 430 MW of expected delivery in priority order — BESS first, then industries inside accepted offers (this one included), then other flexibility — cheapest-first within each tier, within line limits, ramps, SoC and each resource's response trajectory.
 - The twin screens the plan.
 - At L2, with no vetoes, BESS and generation up to 250 MW go automatically; the DR participants wait for approval. With any veto active, everything waits.
 - If the MW awaiting approval exceeds 200, two approvers are needed.
@@ -671,7 +782,7 @@ The next event will count on 87.2% of their available MW.
 
 ---
 
-## 12. Validation before a utility pilot
+## 13. Validation before a utility pilot
 
 | Area | Required before live use |
 | --- | --- |
