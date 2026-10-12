@@ -4,7 +4,6 @@ import {
   Activity,
   ArrowRight,
   Bell,
-  Bot,
   BrainCircuit,
   CheckCircle2,
   Cpu,
@@ -31,6 +30,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { AdrmsMark } from '@/components/brand/AdrmsMark'
 
 const signIn = () => {
   location.hash = '#/login'
@@ -105,12 +105,10 @@ function TopBar() {
     <header className="sticky top-0 z-30 border-b border-white/60 bg-white/75 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-6">
         <a href="#" className="flex items-center gap-2.5" onClick={(e) => (e.preventDefault(), document.getElementById('landing')?.scrollTo({ top: 0, behavior: 'smooth' }))}>
-          <span className="grid size-9 place-items-center rounded-xl bg-sky-600 text-white shadow-sm">
-            <Zap className="size-5" />
-          </span>
+          <AdrmsMark className="size-9 shadow-sm" />
           <span className="leading-tight">
-            <span className="block text-[15px] font-semibold text-slate-900">Demand Response</span>
-            <span className="block text-[11px] text-slate-500">Autonomous DR operations</span>
+            <span className="block text-[15px] font-extrabold tracking-[0.08em] text-sky-900">ADRMS</span>
+            <span className="block text-[11px] text-slate-500">Automated Demand Response Management System</span>
           </span>
         </a>
         <nav className="ml-6 hidden items-center gap-1 text-[14px] text-slate-600 lg:flex">
@@ -595,10 +593,8 @@ function Footer() {
     <footer className="border-t border-slate-200 bg-white px-6 py-10">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-6 text-[13px] text-slate-500">
         <span className="flex items-center gap-2 font-semibold text-slate-700">
-          <span className="grid size-7 place-items-center rounded-lg bg-sky-600 text-white">
-            <Bot className="size-4" />
-          </span>
-          Demand Response Platform
+          <AdrmsMark className="size-7" />
+          ADRMS — Automated Demand Response Management System
         </span>
         <span>Autonomous DR operations with the operator in control.</span>
         <span className="ml-auto">DSM multipliers are illustrative until the notified table is loaded. Reference deployment uses simulated field data.</span>

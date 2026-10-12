@@ -1,4 +1,4 @@
-# KSFP — Operator Experience & Information Architecture
+# ADRMS — Operator Experience & Information Architecture
 
 ## 1. Re-analysis of the previous UI
 
@@ -24,7 +24,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│ KSFP  │ Command Center │ Operations │ Decisions (2) │ Alarms (5) │ Forecast & Analysis │ More ▾ │  ◉ ALERT · L2 Supervised · Data 98% · 15:07:42 B61 │ 👤 │
+│ ADRMS │ Command Center │ Operations │ Decisions (2) │ Alarms (5) │ Forecast & Analysis │ More ▾ │  ◉ ALERT · L2 Supervised · Data 98% · 15:07:42 B61 │ 👤 │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
                                                                          More ▾ = What-if sandbox · Resources · Reports & Audit · Administration
 ```

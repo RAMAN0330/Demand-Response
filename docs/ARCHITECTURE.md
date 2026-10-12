@@ -1,6 +1,6 @@
-# KSFP — System Architecture
+# ADRMS — System Architecture
 
-Karnataka State Flexibility Platform: an autonomous demand-response and flexibility control system for the KPTCL SLDC control area.
+ADRMS (Automated Demand Response Management System): an autonomous demand-response and flexibility control system for the KPTCL SLDC control area.
 
 ## 1. Re-analysis of the previous version
 

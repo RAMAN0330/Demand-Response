@@ -1,4 +1,6 @@
-# How the Demand Response Platform works
+# How ADRMS works
+
+ADRMS — Automated Demand Response Management System.
 
 This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated — the maths, the reasoning behind each choice, and worked numbers.
 

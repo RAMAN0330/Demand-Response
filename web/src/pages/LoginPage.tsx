@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Loader2, LogIn, Zap } from 'lucide-react'
+import { Loader2, LogIn } from 'lucide-react'
+import { AdrmsMark } from '@/components/brand/AdrmsMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,10 +40,9 @@ export function LoginPage() {
       <div className="grid w-full max-w-4xl overflow-hidden rounded-2xl border bg-white shadow-sm md:grid-cols-2">
         <div className="flex flex-col justify-between bg-gradient-to-br from-sky-100 to-emerald-100 p-8">
           <div>
-            <div className="grid size-11 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-emerald-400 text-white shadow-sm">
-              <Zap className="size-5" />
-            </div>
-            <h1 className="mt-5 text-2xl font-semibold text-slate-800">Demand Response Platform</h1>
+            <AdrmsMark className="size-11 shadow-sm" />
+            <h1 className="mt-5 text-2xl font-extrabold tracking-[0.06em] text-sky-900">ADRMS</h1>
+            <div className="text-[13px] font-medium text-slate-600">Automated Demand Response Management System</div>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
               Run demand response end to end: detect the grid need, forecast it, pick the cheapest reliable mix of flexible loads, batteries and generation, dispatch it under
               operator supervision, then measure delivery against baseline and settle every participant.

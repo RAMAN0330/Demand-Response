@@ -56,7 +56,7 @@ function Shell({ token }: { token: string }) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted-foreground">
         <span className="flex items-center gap-2">
-          <Loader2 className="size-4 animate-spin" /> Connecting to the Demand Response Platform…
+          <Loader2 className="size-4 animate-spin" /> Connecting to ADRMS…
         </span>
       </div>
     )

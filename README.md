@@ -1,4 +1,4 @@
-# Demand Response Platform
+# ADRMS — Automated Demand Response Management System
 
 An autonomous demand-response operations platform for a grid control centre (SLDC). It runs the full DR loop continuously:
 
