@@ -1,6 +1,8 @@
 // What-if sandbox — perturb a copy of the live state and see what the system would decide. Nothing is dispatched.
 import { useState } from 'react'
 import { FlaskConical, Play, ShieldCheck } from 'lucide-react'
+import { SectionTabs } from '@/components/common'
+import { ShortageScenario } from '@/components/gridflex/GridFlex'
 import { Empty, Panel, Stat } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -92,6 +94,25 @@ function Knob({
 }
 
 export function WhatIfPage() {
+  return (
+    <SectionTabs
+      sections={[
+        { id: 'grid', label: 'Grid event', content: <GridEventSandbox /> },
+        {
+          id: 'shortage',
+          label: 'Shortage & rotation',
+          content: (
+            <Panel className="h-full" bodyClass="flex min-h-0 flex-col">
+              <ShortageScenario />
+            </Panel>
+          ),
+        },
+      ]}
+    />
+  )
+}
+
+function GridEventSandbox() {
   const [p, setP] = useState(INIT)
   const [res, setRes] = useState<WhatIfResult | null>(null)
   const [busy, setBusy] = useState(false)

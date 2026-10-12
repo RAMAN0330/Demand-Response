@@ -162,7 +162,13 @@ def evaluate(
     rel = max(0.05, min(0.995, reliability))
     eff = pay + rebound
     resp = asset["responseMin"]
-    factors = delivery_factors(resp, asset["rampMWpm"], max(available, 1.0), duration_blocks, active=current > 0.5)
+    if current > 0.5 and available > current + 0.5:
+        # already delivering: what it delivers now counts in full, but any increase is a new instruction — the
+        # plant re-plans (response delay again) and ramps, so only the increment follows the trajectory
+        inc = delivery_factors(resp, asset["rampMWpm"], available - current, duration_blocks)
+        factors = [round((current + f * (available - current)) / available, 4) for f in inc]
+    else:
+        factors = delivery_factors(resp, asset["rampMWpm"], max(available, 1.0), duration_blocks, active=current > 0.5)
     earliest = next((b for b, x in enumerate(factors) if x > 0.01), duration_blocks)
     max_blocks = max(1, int(asset["maxDurationMin"] // 15) - active_blocks)
     if active_blocks:

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { CoordinationView, type GfLedger } from '@/components/gridflex/GridFlex'
 import { ASSET_TYPE_META } from '@/data/topology'
 import type { Command, DecisionSummary } from '@/data/types'
 import { useApi } from '@/hooks'
@@ -47,6 +48,7 @@ interface Alloc {
   protocol: string
 }
 interface Full extends DecisionSummary {
+  phases?: { phase: string; ts: number }[]
   narrative: Record<string, unknown>
   awaiting: string[]
   current: {
@@ -327,6 +329,7 @@ function DecisionDetail({ id }: { id: string }) {
               sections={[
                 { id: 'plan', label: `Participants (${cur.allocations.length})`, content: <PlanTab d={d} /> },
                 { id: 'evidence', label: 'Grid need', content: <EvidenceTab d={d} /> },
+                { id: 'coord', label: 'Coordination', content: <CoordTab d={d} /> },
                 { id: 'alts', label: 'Options', content: <AltTab d={d} /> },
                 { id: 'twin', label: `Safety ${cur.twin.ok ? '✓' : '✕'}`, content: <TwinTab d={d} /> },
                 { id: 'cmds', label: `Dispatch (${d.commands?.length ?? 0})`, content: <CommandsTab d={d} /> },
@@ -553,7 +556,7 @@ function AltTab({ d }: { d: Full }) {
         const t = tradeoff(c)
         return t
           ? `${c.label} is ${fmtRs(chosen.total_rs - c.total_rs)} cheaper but ${t}`
-          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower in this snapshot; the live plan is re-solved every block against the network`
+          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower, but the dispatch priority is BESS → industrial flexibility → other resources`
       })()
     : 'Lowest total cost'
   const chip = { good: 'bg-emerald-100 text-emerald-700', warn: 'bg-amber-100 text-amber-800', bad: 'bg-rose-100 text-rose-700' }
@@ -718,6 +721,30 @@ const CMD_STYLE: Record<string, 'info' | 'warning' | 'success' | 'destructive' |
 
 // seconds from send to a later milestone; "—" until it happens (acknowledged is not the same as delivering)
 const since = (from: number | null | undefined, to: number | null | undefined) => (from == null || to == null ? '—' : `${Math.max(0, to - from).toFixed(0)}s`)
+
+// GridFlex coordination for this event: live shortage ledger while it is the active event, its lifecycle afterwards
+function CoordTab({ d }: { d: Full }) {
+  const { data } = useApi<{ ledger: GfLedger }>('/gridflex/overview', { intervalMs: 3000 })
+  if (data?.ledger.event_id === d.id) return <CoordinationView L={data.ledger} />
+  const phases = d.phases ?? []
+  return (
+    <div className="space-y-2 text-[12px]">
+      <div className="text-[11px] font-semibold text-slate-600">Lifecycle</div>
+      {phases.length ? (
+        <div className="flex flex-wrap gap-2">
+          {phases.map((p, i) => (
+            <span key={i} className="rounded-lg bg-slate-50 px-2 py-1 font-mono text-[11px] ring-1 ring-slate-200">
+              {clockS(p.ts)} · <b>{p.phase}</b>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-slate-500">No lifecycle recorded.</div>
+      )}
+      <div className="text-[11px] text-slate-500">The live shortage ledger is shown while this is the active event; settled figures are in Settlement.</div>
+    </div>
+  )
+}
 
 function CommandsTab({ d }: { d: Full }) {
   const cmds = [...(d.commands ?? [])].reverse()

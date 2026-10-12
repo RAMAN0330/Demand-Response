@@ -428,3 +428,33 @@ def test_settlement_ledger_reconciles():
     assert s["net_benefit_rs"] == round(180_000 - s["resource_payments_rs"] - s["rtm_cost_rs"] - s["rebound_cost_rs"])
     lines = {x["key"]: x["rs"] for x in s["ledger"]}
     assert lines["counterfactual_dsm"] + lines["actual_dsm"] + lines["payments"] + lines["rtm"] + lines["rebound"] == s["net_benefit_rs"]
+
+
+# ------------------------------------------------------------------ dispatch priority
+def test_dispatch_priority_bess_then_industrial_then_others_then_rotation():
+    from ksfp.decide.optimizer import tier_of
+
+    _, _, s = run_field([Disturbance("re_drop", {"mw": 900}, 0, 3600, 30)], 300)
+    a = assess(s)
+    evals = [evaluate(x, a, 4, x["reliability"]) for x in topology().assets]
+    cap: dict[int, float] = {}
+    for e in evals:
+        if e.eligible:
+            cap[tier_of(e.asset["type"])] = cap.get(tier_of(e.asset["type"]), 0.0) + e.expected_mw
+
+    def by_tier(req):
+        p = optimize(a, evals, req, 4, "OPTIMAL")
+        out: dict[int, float] = {}
+        for al in p.allocations:
+            out[tier_of(al.type)] = out.get(tier_of(al.type), 0.0) + al.expected_by_block[2]  # steady block
+        return out, p.residual[2]
+
+    small, _ = by_tier(0.5 * cap[1])
+    assert set(k for k, v in small.items() if v > 0.5) == {1}  # BESS alone covers a small need
+    mid, _ = by_tier(cap[1] + 0.5 * cap[2])
+    assert abs(mid[1] - cap[1]) < 1 and mid.get(3, 0) < 0.5  # BESS full, industrial next, others untouched
+    big, _ = by_tier(cap[1] + cap[2] + 0.5 * cap[3])
+    assert abs(big[1] - cap[1]) < 1 and abs(big[2] - cap[2]) < 1 and big[3] > 0.5  # then other flexibility
+    huge, res = by_tier(cap[1] + cap[2] + cap[3] + 300)
+    assert res > 250  # what is left is the residual load rotation would be proposed for
+    assert all(al.rank == i + 1 for i, al in enumerate(optimize(a, evals, 900, 4, "OPTIMAL").allocations))

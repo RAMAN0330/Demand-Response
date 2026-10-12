@@ -17,7 +17,12 @@ export const PROGRAMS: { type: string; name: string; desc: string; terms: string
     desc: 'Cold storage, water pumping and process loads curtailed on short notice.',
     terms: 'Paid per MWh curtailed vs baseline',
   },
-  { type: 'industrial', name: 'C&I Curtailment', desc: 'Large commercial & industrial customers reduce load under contract.', terms: 'Capacity + energy, performance-adjusted' },
+  {
+    type: 'industrial',
+    name: 'C&I Curtailment',
+    desc: 'Large commercial & industrial customers reduce load under contract.',
+    terms: 'Offers per window · baseline M&V (GridFlex)',
+  },
   { type: 'shiftable', name: 'Load Shifting', desc: 'Agricultural feeders and flexible loads moved out of the stress window.', terms: 'Shift incentive; rebound tracked' },
   { type: 'der', name: 'DER & EV Aggregation', desc: 'Rooftop solar, EV depots and smart charging via aggregators.', terms: 'Aggregator settlement per MWh' },
   { type: 'bess', name: 'Battery Storage', desc: 'Grid batteries discharged or charged within state-of-charge limits.', terms: 'Energy + opportunity cost' },

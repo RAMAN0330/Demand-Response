@@ -8,8 +8,15 @@ Decision variables, for resources i and blocks b:
   v[l,b] ≥ 0   overload slack on line l (penalised at μ ≫ λ; keeps the LP feasible when an
                overload pre-exists, and makes the solver *prefer* relieving resources)
 
-min  Σ (pay+rebound)_i · R_i · φ[i,b] · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
+min  Σ (pay+rebound + π·(tier_i − 1))_i · R_i · φ[i,b] · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
      (₹ per delivered kWh × expected delivered energy — the same rate settlement pays)
+
+Dispatch priority (lexicographic): tier 1 BESS → tier 2 industrial flexibility → tier 3 other paid flexibility
+(generation, interruptible, shiftable, DER) → tier 4 RTM purchase. Load rotation is never in the LP: it covers
+only what is left after every tier, with approval. The tier step π exceeds the widest cost spread between
+resources, so a lower tier is used only for what the higher tiers cannot deliver within network, ramp, SoC,
+response-time and offer limits; within a tier the cheapest goes first. λ sits above the last tier, so the LP
+never prefers leaving a need unserved to using a lower tier. Reported costs exclude π.
 s.t. Σ_i R_i φ[i,b] x[i,b] + s[b] ≥ req[b]                  (balance, expected block-average MW)
      ±(f0_l + Σ_i PTDF[l,bus_i]·dir·x[i,b]) − v[l,b] ≤ limit_l   (thermal limits, N-0)
      x[i,b] ≤ avail_i ;  x[i,b] = 0 for b < earliest_i       (capacity, response time)
@@ -46,12 +53,19 @@ STRATEGIES = {
     "BESS": {"label": "BESS only", "types": {"bess"}, "desc": "Discharge grid batteries."},
     "DR": {"label": "Demand response only", "types": {"interruptible", "shiftable", "industrial", "der"}, "desc": "Curtail or shift flexible demand."},
     "OPTIMAL": {
-        "label": "Optimal mix",
+        "label": "Priority mix",
         "types": {"generation", "bess", "interruptible", "shiftable", "industrial", "der", "rtm"},
-        "desc": "Co-optimise all resources under network constraints.",
+        "desc": "BESS first, then industrial flexibility, then other resources — under network constraints; load rotation only after all of them.",
     },
 }
 RTM_LEAD_BLOCKS = 4
+# dispatch priority by resource type (1 = first); anything unlisted is tier 3 (other paid flexibility)
+PRIORITY = {"bess": 1, "industrial": 2, "rtm": 4}
+TIER_LABEL = {1: "BESS", 2: "Industrial flexibility", 3: "Other flexibility", 4: "RTM purchase"}
+
+
+def tier_of(asset_type: str) -> int:
+    return PRIORITY.get(asset_type, 3)
 
 
 @dataclass
@@ -225,12 +239,17 @@ def optimize(
     nr = s.prices
     from ..grid.dsm import normal_rate
 
-    lam = max(3 * normal_rate(nr).nr, 25.0) * BLOCK_H * 1000
+    # tier step: wider than any cost spread between candidates, so priority dominates cost across tiers
+    units = [c["unit_cost"] for c in cands] or [0.0]
+    step = (max(units) - min(min(units), 0.0) + 1.0) * BLOCK_H * 1000
+    top = max((tier_of(c["type"]) for c in cands), default=1)
+    lam = max(max(3 * normal_rate(nr).nr, 25.0) * BLOCK_H * 1000, (top - 1) * step + max(units) * BLOCK_H * 1000 + step)
     mu = 1e7
     c_vec = np.zeros(N)
     for j, c in enumerate(cands):
         for b in range(B):
-            c_vec[xi(j, b)] = c["unit_cost"] * c["R"] * c["phi"][b] * BLOCK_H * 1000 + 1e-3 * j  # tiny tie-break → stable merit order
+            pen = (tier_of(c["type"]) - 1) * step
+            c_vec[xi(j, b)] = (c["unit_cost"] * BLOCK_H * 1000 + pen) * c["R"] * c["phi"][b] + 1e-3 * j  # tiny tie-break → stable merit order
     for b in range(B):
         c_vec[si(b)] = lam
     for k in range(nv):
@@ -342,7 +361,7 @@ def optimize(
                 rate_rs=c["pay"],
             )
         )
-    allocations.sort(key=lambda al: al.effective_cost)
+    allocations.sort(key=lambda al: (tier_of(al.type), al.effective_cost))  # priority tier, then merit order
     for r_, al in enumerate(allocations, 1):
         al.rank = r_
 

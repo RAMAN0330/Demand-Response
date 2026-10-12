@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { MapPin, ShieldCheck, ShieldX } from 'lucide-react'
 import { FitPager, SectionTabs } from '@/components/common'
+import type { GfKpis } from '@/components/gridflex/GridFlex'
 import { Empty, Panel, Stat, StatStrip } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -49,6 +50,8 @@ export function ReportsPage() {
   const { data: s } = useApi<Summary>('/reports/summary', { intervalMs: 10000 })
   const [verify, setVerify] = useState<{ ok: boolean; checked: number; broken_at: number | null; reason?: string } | null>(null)
   const perf = s && s.expected_mwh > 0 ? s.delivered_mwh / s.expected_mwh : null
+  const { data: gf } = useApi<{ kpis: GfKpis }>('/gridflex/overview', { intervalMs: 15000 })
+  const gk = gf?.kpis
   return (
     <div className="flex h-full flex-col gap-3">
       <StatStrip>
@@ -62,6 +65,18 @@ export function ReportsPage() {
         <Stat label="Penalties avoided" value={fmtRs(s?.avoided_dsm_rs ?? 0)} tone="good" sub="DSM charges not incurred" />
         <Stat label="Paid to participants" value={fmtRs(s?.payments_rs ?? 0)} sub="performance-adjusted" />
         <Stat label="Net programme benefit" value={fmtRs(s?.net_benefit_rs ?? 0)} tone={(s?.net_benefit_rs ?? 0) >= 0 ? 'good' : 'bad'} />
+        <Stat
+          label="Cost per delivered MWh"
+          value={gk?.flex_cost_rs_per_mwh != null ? `₹${gk.flex_cost_rs_per_mwh.toLocaleString('en-IN')}` : '—'}
+          sub={gk ? `${gk.disputes} M&V dispute(s)` : undefined}
+          tone={gk?.disputes ? 'warn' : undefined}
+        />
+        <Stat
+          label="Event success rate"
+          value={gk?.event_success_rate != null ? `${(gk.event_success_rate * 100).toFixed(0)}%` : '—'}
+          sub="delivered ≥ 90 % of expected"
+          tone={gk?.event_success_rate == null ? undefined : gk.event_success_rate >= 0.8 ? 'good' : 'warn'}
+        />
         <button
           onClick={async () => setVerify(await api('/audit/verify'))}
           className={cn(

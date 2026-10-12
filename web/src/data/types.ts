@@ -119,6 +119,7 @@ export interface DecisionSummary {
   updated_at: number
   closed_at: number | null
   revision: number
+  phase?: string
   headline: string
   requirement_mw: number
   planned_mw: number

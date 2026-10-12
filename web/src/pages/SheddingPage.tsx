@@ -35,6 +35,7 @@ interface Group {
   last_restored: number | null
   mw_now: number
   load_mw: number
+  fairness?: { F: number; H_h: number; N: number; D_min: number }
 }
 interface Order {
   id: string
@@ -52,6 +53,10 @@ interface Order {
   peak_mw: number
   rotations: number
   log: { t: number; kind: string; msg: string }[]
+  planned_mw?: number
+  measured_mw?: number
+  escalated?: boolean
+  selection?: { group: string; name: string; action: 'picked' | 'excluded' | 'next'; reason: string; F: number; mw?: number }[]
 }
 interface Policy {
   max_spell_min: number
@@ -284,7 +289,9 @@ function GroupCard({ g, p, now, onLocate }: { g: Group; p: Policy; now: number; 
       title={`${g.name} — ${g.channels.length} stations. Never rotated: ${Object.entries(g.protected)
         .filter(([, n]) => n > 0)
         .map(([k, n]) => `${k} ${n}`)
-        .join(', ')}`}
+        .join(
+          ', ',
+        )}${g.fairness ? `\nFairness F ${g.fairness.F.toFixed(2)} — ${g.fairness.H_h.toFixed(1)} h, ${g.fairness.N} interruption(s) in 7 days, latest ${g.fairness.D_min.toFixed(0)} min (lower F goes next)` : ''}`}
       className={cn(
         'flex min-h-0 min-w-0 flex-col justify-between rounded-lg px-2 py-1 text-left ring-1 transition hover:ring-sky-300',
         out ? 'bg-rose-50 ring-rose-300' : capped ? 'bg-slate-100 ring-slate-300' : resting ? 'bg-slate-50 ring-slate-200' : 'bg-white/80 ring-slate-200',
@@ -385,6 +392,38 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
               >
                 <RotateCcw className="size-3.5" /> Restore all (staged)
               </Button>
+            </div>
+          )}
+          {(open.state === 'ACTIVE' || open.state === 'RESTORING') && open.planned_mw != null && open.planned_mw > 0.5 && (
+            <div className={cn('shrink-0 rounded-lg px-2.5 py-1.5 text-[11.5px]', open.escalated ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-700')}>
+              Relief <b className="font-mono">{fmtMW(open.measured_mw ?? 0)}</b> metered of <span className="font-mono">{fmtMW(open.planned_mw)}</span> planned (
+              {(((open.measured_mw ?? 0) / open.planned_mw) * 100).toFixed(0)}%) — the residual is re-estimated from metering
+              {open.escalated && ', escalated'}.
+            </div>
+          )}
+          {open.selection && open.selection.some((s) => s.action === 'picked') && (
+            <div className="shrink-0 space-y-0.5 text-[11px]">
+              {open.selection
+                .filter((s) => s.action === 'picked')
+                .slice(0, 3)
+                .map((s) => (
+                  <div key={s.group} className="truncate" title={s.reason}>
+                    <span className="mr-1 rounded bg-rose-100 px-1 text-[9px] font-bold text-rose-700 uppercase">picked</span>
+                    <b className="font-medium">{s.name}</b> <span className="text-slate-500">— {s.reason}</span>
+                  </div>
+                ))}
+              {open.selection.some((s) => s.action === 'excluded') && (
+                <div
+                  className="truncate text-slate-500"
+                  title={open.selection
+                    .filter((s) => s.action === 'excluded')
+                    .map((s) => `${s.name}: ${s.reason}`)
+                    .join('\n')}
+                >
+                  <span className="mr-1 rounded bg-slate-200 px-1 text-[9px] font-bold text-slate-600 uppercase">excluded</span>
+                  {open.selection.filter((s) => s.action === 'excluded').length} group(s) — daily limit or resting (hover for each reason)
+                </div>
+              )}
             </div>
           )}
           <div className="min-h-0 flex-1">

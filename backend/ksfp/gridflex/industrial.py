@@ -332,6 +332,8 @@ class IndustrialRegistry:
         out = []
         for pid, p in self.participants.items():
             o = self.active_offer(pid, now)
+            # otherwise show the live offer that is waiting for its window or for acceptance
+            shown = o or max((x for x in self.offers.values() if x.participant == pid and x.status in ("ACCEPTED", "SUBMITTED")), key=lambda x: x.submitted_at, default=None)
             hist = [r for (d, q), r in self.mv.items() if q == pid]
             settled = [r for r in hist if r.status in ("SETTLED", "DISPUTED")]
             q = self.meter.get(pid)
@@ -342,7 +344,7 @@ class IndustrialRegistry:
                     "metered_mw": q[-1][1] if q else None,
                     "baseline_now_mw": round(self.baseline(pid, now), 1),
                     "activated_mw": round(live.get(pid, 0.0), 1),
-                    "offer": o.to_dict() if o else None,
+                    "offer": ({**shown.to_dict(), "in_window": shown.covers(now) and shown.status == "ACCEPTED"} if shown else None),
                     "events": len(hist),
                     "verified_mwh": round(sum(r.energy_mwh for r in settled), 2),
                     "paid_rs": round(sum(r.payment_rs for r in settled), 0),
