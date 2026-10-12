@@ -86,6 +86,7 @@ class Runtime:
         self.ticks = 0
         self.last_forecast = 0.0
         self.last_kptcl_cycle_seen = 0
+        self.data_age: dict[str, float | None] = {}
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -187,13 +188,14 @@ class Runtime:
             if self.kptcl.cycles != self.last_kptcl_cycle_seen:
                 self.last_kptcl_cycle_seen = self.kptcl.cycles
                 self._calibrate(raw)
-        values = self.quality.process(raw, now)
+        values = self.quality.process(raw, now, self.kptcl.values_ts if self.kptcl else None)
         s = estimate(values, now, self.quality)
         a = assess(s, self.dsm_cfg)
         self.state, self.assessment = s, a
         self.channel_values = {k: v for k, (v, _) in values.items() if k.startswith("ch.") and v is not None}
         live = self.kptcl.values if self.kptcl else {}
         self.channel_src = {k: ("KPTCL" if k in live else "SIM") for k in self.channel_values}
+        self._safety_vetoes(values, s, now)
         # forecast
         if now - self.last_forecast >= 60 or self.forecast is None:
             self.forecaster.update(s)
@@ -286,6 +288,42 @@ class Runtime:
         if bus_factor or gen_factor:
             self.field.calibrate(bus_factor, gen_factor)
             self.audit.append(self.clock.now(), "SYSTEM", "kptcl-adapter", f"Model calibrated from live KPTCL data: {len(bus_factor)} buses, {len(gen_factor)} generators")
+
+    def _safety_vetoes(self, values: dict[str, tuple[float | None, str]], s, now: float) -> None:
+        """Hard vetoes: an averaged confidence score can stay above 85 % while one critical input is bad.
+        Each of these forces advisory (or, per asset, approval) on its own."""
+        q = lambda k: values.get(k, (None, "MISSING"))[1]  # noqa: E731
+        age = lambda k: self.quality.age(k, now)  # noqa: E731
+        fmt = lambda x: "never received" if x is None else f"{x:.0f} s old"  # noqa: E731
+        v: list[str] = []
+        if q("sys.frequency") != "GOOD":
+            v.append(f"Frequency measurement not fresh ({q('sys.frequency').lower()}, {fmt(age('sys.frequency'))}) — automatic control blocked")
+        if q("sys.schedule") in ("STALE", "MISSING", "SUSPECT"):
+            v.append(f"Interchange schedule {q('sys.schedule').lower()} — ACE cannot be trusted; automatic control blocked")
+        bad = [k.split(".")[1] for k, (_, qq) in values.items() if k.startswith("line.") and k.endswith(".status") and qq in ("STALE", "MISSING", "SUSPECT")]
+        if bad:
+            v.append(f"Breaker status not current for {len(bad)} line(s) ({', '.join(bad[:4])}) — topology uncertain; automatic control blocked")
+        if self.kptcl:
+            last = self.kptcl.last_cycle
+            v.append(
+                f"Source is the SLDC website, polled every {self.kptcl.poll_s:.0f} s (last fetch {fmt(None if not last else now - last)}) — "
+                "advisory only until authorised SCADA/EMS telemetry is connected"
+            )
+        av: dict[str, str] = {}
+        for aid, st in s.asset_state.items():
+            if st["heartbeat_age_s"] > 60:
+                av[aid] = "gateway heartbeat lost — command path unproven"
+            elif st.get("soc") is not None and q(f"asset.{aid}.soc") in ("STALE", "MISSING", "SUSPECT"):
+                av[aid] = f"state-of-charge telemetry {q(f'asset.{aid}.soc').lower()}"
+        self.policy.vetoes, self.policy.asset_vetoes = v, av
+        lines = [k for k in values if k.startswith("line.") and k.endswith(".status")]
+        ages = [a for a in (age(k) for k in lines) if a is not None]
+        self.data_age = {
+            "frequency": age("sys.frequency"),
+            "schedule": age("sys.schedule"),
+            "breakers": max(ages) if ages else None,
+            "sldc": (now - self.kptcl.last_cycle) if self.kptcl and self.kptcl.last_cycle else None,
+        }
 
     def unshed_load(self, bus_load: dict[str, float]) -> dict[str, float]:
         """Bus load as it would be without shedding (the field reports load after feeders are opened)."""
@@ -434,7 +472,8 @@ class Runtime:
             "quality_issues": s.quality,
             "dsm_per_block_rs": round(a.dsm.amount_rs, 0),
             "nr": round(a.dsm.nr.nr, 2),
-            "autonomy": {"level": self.policy.level, "effective": eff, "reasons": reasons, "suspended": self.policy.suspended},
+            "autonomy": {"level": self.policy.level, "effective": eff, "reasons": reasons, "suspended": self.policy.suspended, "vetoes": self.policy.vetoes},
+            "data_age": {k: (None if v is None else round(v, 1)) for k, v in self.data_age.items()},
             "counts": {
                 "alarms": len(active_alarms),
                 "p1": sum(1 for x in active_alarms if x.priority == 1),

@@ -164,7 +164,9 @@ export interface Frame {
   quality_issues: Record<string, string>
   dsm_per_block_rs: number
   nr: number
-  autonomy: { level: number; effective: number; reasons: string[]; suspended: boolean }
+  autonomy: { level: number; effective: number; reasons: string[]; suspended: boolean; vetoes?: string[] }
+  /** seconds since each critical input was measured at its source (null = never received) */
+  data_age?: { frequency: number | null; schedule: number | null; breakers: number | null; sldc: number | null }
   counts: { alarms: number; p1: number; unacked: number; decisions_open: number; awaiting: number }
   active_decision: DecisionSummary | null
   shedding?: SheddingSummary

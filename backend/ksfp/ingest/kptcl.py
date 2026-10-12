@@ -148,6 +148,7 @@ class KptclSource:
     poll_s: float = float(os.environ.get("KSFP_KPTCL_POLL_S", "300"))
     timeout_s: float = 20.0
     values: dict[str, float] = field(default_factory=dict)  # ch.load.<id> / ch.gen.<id> → MW
+    values_ts: dict[str, float] = field(default_factory=dict)  # same keys → when the page was fetched
     unmapped: dict[str, dict] = field(default_factory=dict)  # normalized label → {label, mw, discom, kind}
     system: dict[str, float] = field(default_factory=dict)  # page-level values (frequency, state demand) for cross-validation
     status: dict[str, SourceStatus] = field(default_factory=dict)
@@ -194,6 +195,7 @@ class KptclSource:
             if ch:
                 key = f"ch.{st.kind}.{ch['id']}"
                 self.values[key] = row["mw"]
+                self.values_ts[key] = now  # fetch time: the value's age is measured from here
                 st.matched += 1
             else:
                 self.unmapped[norm(row["label"])] = {"label": row["label"], "mw": row["mw"], "discom": row["discom_hint"] or st.discom, "kind": st.kind, "seen_at": now}

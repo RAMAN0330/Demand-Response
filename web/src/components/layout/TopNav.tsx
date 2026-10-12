@@ -36,6 +36,7 @@ import { useLive } from '@/store/useLive'
 import { useUI, type Page } from '@/store/useUI'
 
 const LEVELS = ['Monitor', 'Advisory', 'Supervised', 'Autonomous']
+const fmtAge = (s: number | null | undefined) => (s == null ? 'never' : s < 60 ? `${s.toFixed(0)} s` : s < 3600 ? `${(s / 60).toFixed(0)} min` : `${(s / 3600).toFixed(1)} h`)
 
 // DR operator workflow: overview → events (act) → programs (capacity) → grid & forecast (context) → alarms
 const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
@@ -92,6 +93,11 @@ export function TopNav() {
   }
 
   const ev = f?.active_decision && !f.active_decision.closed_at ? f.active_decision : null
+  const age = f?.data_age
+  const vetoes = f?.autonomy.vetoes ?? []
+  // worst age among the inputs that gate control (a green pill must never imply fresh data)
+  const oldest = age ? Math.max(...[age.frequency, age.schedule, age.breakers, age.sldc].filter((x): x is number => x != null), 0) : null
+  const stale = oldest != null && oldest > 10
   const sevDot = { NORMAL: 'bg-emerald-500', ALERT: 'bg-amber-500', EMERGENCY: 'animate-pulse bg-rose-500' } as const
   const tab = 'relative flex h-full items-center gap-1.5 px-2 text-[13px] 2xl:px-2.5 font-medium whitespace-nowrap text-slate-500 transition hover:text-slate-900'
   const on = 'text-sky-700 after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-t-full after:bg-sky-600'
@@ -223,15 +229,35 @@ export function TopNav() {
                   <span
                     className={cn(
                       'flex items-center gap-1 px-2 text-[11px] font-medium whitespace-nowrap',
-                      f.confidence >= 0.97 ? 'text-emerald-700' : f.confidence >= 0.85 ? 'text-amber-700' : 'text-rose-600',
+                      vetoes.length || f.confidence < 0.85 ? 'text-rose-600' : f.confidence < 0.97 || stale ? 'text-amber-700' : 'text-emerald-700',
                     )}
                   >
                     <ShieldAlert className="size-3" /> {(f.confidence * 100).toFixed(0)}%
+                    {oldest != null && oldest > 10 && <span className="font-mono text-[10px] opacity-80">· {fmtAge(oldest)}</span>}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>
-                  Data confidence of the state estimate. Below 85% autonomy degrades to advisory automatically.
-                  {f.source.kptcl && ` SLDC feed: ${f.source.kptcl.ok}/${f.source.kptcl.total} pages, ${f.source.kptcl.live} live channels.`}
+                <TooltipContent className="max-w-sm">
+                  <div className="font-semibold">Data confidence & freshness</div>
+                  <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 font-mono text-[11px]">
+                    <span>Frequency</span>
+                    <span>{fmtAge(age?.frequency)}</span>
+                    <span>Schedule</span>
+                    <span>{fmtAge(age?.schedule)}</span>
+                    <span>Breakers</span>
+                    <span>{fmtAge(age?.breakers)}</span>
+                    {age?.sldc != null && (
+                      <>
+                        <span>SLDC web</span>
+                        <span>{fmtAge(age.sldc)}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-1">Ages are from the source timestamp. Confidence below 85% or any veto keeps autonomy advisory.</div>
+                  {vetoes.map((v) => (
+                    <div key={v} className="mt-1 text-rose-200">
+                      ⛔ {v}
+                    </div>
+                  ))}
                 </TooltipContent>
               </Tooltip>
             </div>

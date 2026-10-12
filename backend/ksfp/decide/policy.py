@@ -31,9 +31,15 @@ class AutonomyPolicy:
     dual_auth_mw: float = 200.0
     envelope: Envelope = field(default_factory=Envelope)
     version: int = 1
+    # hard safety vetoes, recomputed every tick from telemetry health (never persisted): any entry forces
+    # advisory regardless of the aggregate confidence score; asset vetoes send that asset to approval
+    vetoes: list[str] = field(default_factory=list)
+    asset_vetoes: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
+        d.pop("vetoes", None)
+        d.pop("asset_vetoes", None)
         d["level_name"] = LEVELS[self.level]
         return d
 
@@ -50,6 +56,9 @@ class AutonomyPolicy:
         if not loop_healthy:
             reasons.append("Control loop latency high — degraded to advisory")
             lvl = min(lvl, 1)
+        for v in self.vetoes:
+            reasons.append(v)
+            lvl = min(lvl, 1)
         return lvl, reasons
 
     def classify(self, allocations: list[dict], severity: str, confidence: float, twin_ok: bool, loop_healthy: bool = True) -> dict:
@@ -57,9 +66,12 @@ class AutonomyPolicy:
         lvl, reasons = self.effective(confidence, loop_healthy)
         auto, approval = [], []
         auto_mw = 0.0
+        vetoed = []
         for al in sorted(allocations, key=lambda x: x["mw"]):
             ok = False
-            if lvl >= 3 and twin_ok and al["type"] != "rtm":
+            if al["id"] in self.asset_vetoes:
+                vetoed.append(f"{al['id']}: {self.asset_vetoes[al['id']]}")
+            elif lvl >= 3 and twin_ok and al["type"] != "rtm":
                 ok = True
             elif lvl == 2 and twin_ok and al["type"] in self.envelope.auto_types and severity in self.envelope.allowed_severity:
                 ok = auto_mw + al["mw"] <= self.envelope.max_auto_mw
@@ -70,6 +82,8 @@ class AutonomyPolicy:
                 approval.append(al["id"])
         if lvl == 2 and approval:
             reasons.append(f"Outside autonomy envelope (auto classes {', '.join(self.envelope.auto_types)}, ≤{self.envelope.max_auto_mw:.0f} MW) → operator approval")
+        if vetoed:
+            reasons.append("Needs approval — " + "; ".join(vetoed))
         if not twin_ok:
             reasons.append("Digital Twin did not approve — human decision required")
         return {"level": lvl, "level_name": LEVELS[lvl], "auto": auto, "approval": approval, "auto_mw": auto_mw, "reasons": reasons}

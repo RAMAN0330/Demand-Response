@@ -347,3 +347,32 @@ def test_slow_responder_is_credited_only_for_what_it_delivers_inside_the_block()
         phi = ev[al.asset_id].factors
         for b in range(4):
             assert abs(al.expected_by_block[b] - al.mw_by_block[b] * al.reliability * phi[b]) < 0.05
+
+
+# ------------------------------------------------------------------ data freshness & hard vetoes
+def test_redelivered_web_value_ages_from_its_fetch_time():
+    q = QualityLayer()
+    fetched = 1_000_000.0
+    key = "ch.load.TEST"
+    assert q.process({key: 120.0}, fetched, {key: fetched})[key][1] == "GOOD"
+    # the platform keeps re-reading the same 5-minute poll result every second: it must not look fresh
+    assert q.process({key: 120.0}, fetched + 9, {key: fetched})[key][1] == "GOOD"
+    assert q.process({key: 120.0}, fetched + 30, {key: fetched})[key][1] == "SUBSTITUTED"
+    assert q.process({key: 120.0}, fetched + 300, {key: fetched})[key][1] == "STALE"
+    assert abs(q.age(key, fetched + 300) - 300) < 1e-9
+    # a new poll resets the age
+    assert q.process({key: 125.0}, fetched + 301, {key: fetched + 300})[key][1] == "GOOD"
+
+
+def test_hard_vetoes_force_advisory_whatever_the_confidence_score():
+    p = AutonomyPolicy(level=3)
+    allocs = [{"id": "A_PBESS", "type": "bess", "mw": 40.0}, {"id": "A_GBESS", "type": "bess", "mw": 30.0}]
+    assert p.classify(allocs, "ALERT", 1.0, True)["approval"] == []  # L3, healthy → all automatic
+    p.asset_vetoes = {"A_GBESS": "state-of-charge telemetry stale"}
+    r = p.classify(allocs, "ALERT", 1.0, True)
+    assert r["auto"] == ["A_PBESS"] and r["approval"] == ["A_GBESS"]  # only the vetoed asset needs a human
+    p.vetoes = ["Frequency measurement not fresh (stale, 45 s old) — automatic control blocked"]
+    lvl, reasons = p.effective(confidence=1.0)
+    assert lvl == 1 and reasons == p.vetoes
+    assert p.classify(allocs, "ALERT", 1.0, True)["auto"] == []
+    assert "vetoes" not in p.to_dict()  # runtime state, never persisted as policy

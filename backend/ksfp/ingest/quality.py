@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from ..grid.topology import topology
 
+FRESH_S = 10.0  # a value is GOOD only while its *source* timestamp is this recent (IEGC: ACE archived ≤10 s)
 QUALITY_WEIGHT = {"GOOD": 1.0, "SUBSTITUTED": 0.85, "SUSPECT": 0.5, "STALE": 0.3, "MISSING": 0.0}
 
 
@@ -64,11 +65,17 @@ class QualityLayer:
             + [f"gen.{g['id']}.mw" for g in t.generators]
         )
 
-    def process(self, raw: dict[str, float], now: float) -> dict[str, tuple[float | None, str]]:
+    def process(self, raw: dict[str, float], now: float, src_ts: dict[str, float] | None = None) -> dict[str, tuple[float | None, str]]:
+        """src_ts: when each value was *measured/fetched* at the source. Ages are measured from that, never from
+        when the platform happened to read it — re-reading a 5-minute-old web value does not make it fresh."""
         out: dict[str, tuple[float | None, str]] = {}
+        src_ts = src_ts or {}
         for k, v in raw.items():
-            self.stats["received"] += 1
+            ts_k = min(now, src_ts.get(k, now))
             ps = self.points.setdefault(k, PointState())
+            if ps.value is not None and ts_k <= ps.ts:
+                continue  # same (or older) sample re-delivered: nothing new, keep its original age
+            self.stats["received"] += 1
             rule = rule_for(k)
             bad_range = not (rule.lo <= v <= rule.hi)
             bad_spike = False
@@ -80,7 +87,7 @@ class QualityLayer:
                 self.stats["rejected"] += 1
                 ps.quality = "SUSPECT" if ps.value is not None else "MISSING"
                 continue
-            ps.value, ps.ts, ps.quality = v, now, "GOOD"
+            ps.value, ps.ts, ps.quality = v, ts_k, "GOOD"
         keys = set(self.expected) | set(raw) | set(self.points)
         for k in keys:
             ps = self.points.get(k)
@@ -88,7 +95,7 @@ class QualityLayer:
                 out[k] = (None, "MISSING")
                 continue
             age = now - ps.ts
-            if k in raw and ps.quality == "GOOD" and ps.ts == now:
+            if ps.quality == "GOOD" and age <= FRESH_S:
                 out[k] = (ps.value, "GOOD")
             elif ps.quality == "SUSPECT" and age <= rule_for(k).ttl_s:
                 out[k] = (ps.value, "SUSPECT")
@@ -98,6 +105,10 @@ class QualityLayer:
                 self.stats["stale"] += 1
                 out[k] = (ps.value, "STALE")
         return out
+
+    def age(self, key: str, now: float) -> float | None:
+        ps = self.points.get(key)
+        return None if ps is None or ps.value is None else max(0.0, now - ps.ts)
 
     @staticmethod
     def confidence(values: dict[str, tuple[float | None, str]]) -> tuple[float, dict[str, str]]:
