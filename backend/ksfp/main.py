@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.gridflex import gridflex
 from .api.routes import ops, router
 from .core.settings import Settings, settings
 from .runtime import Runtime
@@ -40,6 +41,7 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
     app = FastAPI(title="ADRMS API — Automated Demand Response Management System", version="1.0.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in cfg.cors_origins.split(",")], allow_methods=["*"], allow_headers=["*"])
     app.include_router(router)
+    app.include_router(gridflex)
     app.include_router(ops)
     return app
 

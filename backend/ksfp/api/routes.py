@@ -374,6 +374,7 @@ async def shedding(request: Request, p: Principal = Depends(need("view"))):
     s = r.state
     unshed = r.unshed_load(s.bus_load) if s else {}
     ro = r.roster
+    ro.fairness(r.clock.now())  # refresh F = w_h·H + w_n·N + w_d·D for the roster board
     groups = []
     for g in ro.groups.values():
         d = g.to_dict()
@@ -524,7 +525,8 @@ async def whatif(body: WhatIfIn, request: Request, p: Principal = Depends(need("
             rel *= body.industrial_compliance
         if x["type"] == "bess":
             x2 = {**x, "maxLoadMW": x["maxLoadMW"] * body.bess_availability}
-        evals.append(evaluate(x2, a, body.horizon_blocks, rel, x["id"] in r.engine.out_of_service))
+        x2, why = r.industrial.terms(x2, r.clock.now())  # GridFlex offers apply in the sandbox too
+        evals.append(evaluate(x2, a, body.horizon_blocks, rel, x["id"] in r.engine.out_of_service, 0, why))
 
     def run():
         plan = optimize(a, evals, a.requirement_mw, body.horizon_blocks)

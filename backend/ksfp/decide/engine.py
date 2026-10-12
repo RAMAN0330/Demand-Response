@@ -71,6 +71,7 @@ class Decision:
     final_state: str = "COMPLETED"
     meter: Meter = field(default_factory=Meter)
     rates: dict[str, float] = field(default_factory=dict)  # pay rate locked per asset at dispatch (₹/kWh)
+    phases: list[dict] = field(default_factory=list)  # GridFlex lifecycle: [{phase, ts}] — auditable transitions
 
     @property
     def open(self) -> bool:
@@ -102,6 +103,7 @@ class Decision:
             "approval_history": self.approval_history,
             "closed_reason": self.closed_reason,
             "net_benefit_rs": (self.settlement or {}).get("net_benefit_rs"),
+            "phase": self.phases[-1]["phase"] if self.phases else "DETECTED",
         }
 
     def to_dict(self) -> dict:
@@ -115,6 +117,7 @@ class Decision:
                 "timeline": self.timeline,
                 "settlement": self.settlement,
                 "excluded": self.excluded,
+                "phases": self.phases,
                 "awaiting": self.awaiting,
                 "auto": self.auto,
             }
@@ -135,6 +138,7 @@ class DecisionEngine:
     log: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, decision_id, message) drained by runtime
     relief_mw: float = 0.0  # load currently shed by the roster manager (set by the runtime every tick)
     off_peak: float = 3.2  # ₹/kWh for rebound energy in settlement (follows live prices)
+    industrial: object | None = None  # GridFlex IndustrialRegistry: offers gate industrial resources, M&V settles them
 
     # ---------------------------------------------------------------- helpers
     def active(self) -> Decision | None:
@@ -159,6 +163,84 @@ class DecisionEngine:
         # flexibility stays sized to the full over-drawal, so shedding is what gets released first
         signed = -a.ace.ace if d.direction == "UP" else a.ace.ace
         return max(0.0, signed + delivered + (self.relief_mw if d.direction == "UP" else 0.0))
+
+    PHASES = ("DETECTED", "ASSESSED", "PROPOSED", "APPROVED", "ACTIVATING", "VERIFYING", "RECOVERY", "SETTLED")
+
+    def phase_of(self, d: Decision) -> str:
+        """Lifecycle phase from the decision's state, its commands' clocks and settlement:
+        DETECTED → ASSESSED → PROPOSED → APPROVED → ACTIVATING → VERIFYING → RECOVERY → SETTLED,
+        with exception states REJECTED, CANCELLED (aborted), FAILED (every command failed) and DISPUTED."""
+        if d.state == "REJECTED":
+            return "REJECTED"
+        if d.state == "ABORTED":
+            return "CANCELLED"
+        if d.state == "COMPLETED":
+            ind = getattr(self.industrial, "mv", {}) if self.industrial is not None else {}
+            if any(k[0] == d.id and r.status == "DISPUTED" for k, r in ind.items()):
+                return "DISPUTED"
+            return "SETTLED" if d.settlement else "RECOVERY"
+        if d.state == "RELEASING":
+            return "RECOVERY"
+        cmds = [c for c in self.commands.for_decision(d.id) if c.kind == "DISPATCH" and c.setpoint > 0.5]
+        live = [c for c in cmds if c.state not in TERMINAL]
+        if cmds and not live and all(c.state == "FAILED" for c in cmds):
+            return "FAILED"
+        if d.state == "AWAITING_APPROVAL" or (d.state == "PROPOSED" and d.revision > 1):
+            return "PROPOSED"
+        if d.state == "PROPOSED":
+            return "ASSESSED"
+        if any(c.state in ("READY", "SENT", "ACKED") or (c.state == "EXECUTING" and c.full_output_at is None) for c in live):
+            return "ACTIVATING" if any(c.state in ("ACKED", "EXECUTING") for c in live) else "APPROVED"
+        return "VERIFYING" if live else "APPROVED"
+
+    def track_phases(self, now: float) -> list[Decision]:
+        """Record phase transitions (called every tick); returns decisions whose phase changed."""
+        changed = []
+        for d in self.decisions.values():
+            if d.phases and d.phases[-1]["phase"] in ("SETTLED", "REJECTED", "CANCELLED") and not d.open:
+                continue
+            ph = self.phase_of(d)
+            if not d.phases:
+                d.phases.append({"phase": "DETECTED", "ts": d.opened_at})
+            last = d.phases[-1]["phase"]
+            # forward-only within an event: a re-solve that briefly re-activates one resource does not send the
+            # event back to ACTIVATING; only a new approval round returns it to PROPOSED
+            if last in self.PHASES and ph in self.PHASES and self.PHASES.index(ph) < self.PHASES.index(last) and ph != "PROPOSED":
+                continue
+            if last != ph:
+                d.phases.append({"phase": ph, "ts": now})
+                changed.append(d)
+        return changed
+
+    def rotation_residual(self, a: Assessment, now: float) -> dict:
+        """GridFlex coordination: the over-drawal that load rotation would have to cover.
+
+        planned  = shortfall the plan cannot close even after its resources have ramped in — the smaller of the
+                   block-1 and block-2 residuals, so a gap that flexibility closes within minutes never triggers
+                   rotation
+        measured = under-delivery of commands whose response window has passed (expected − metered); planned
+                   values are replaced by measured ones as soon as they can be
+        """
+        d = self.active()
+        if d is None or d.direction != "UP":
+            return {"planned_mw": 0.0, "measured_shortfall_mw": 0.0, "residual_mw": 0.0, "lagging": []}
+        res = [max(0.0, float(x)) for x in ((d.current.get("plan") or {}).get("residual") or [0.0])]
+        planned = min(res[:2]) if len(res) > 1 else (res[0] if res else 0.0)
+        rel = {x["id"]: x.get("reliability", 1.0) for x in d.current.get("allocations", [])}
+        t = topology()
+        short, lag = 0.0, []
+        for c in self.commands.for_decision(d.id):
+            if c.state != "EXECUTING" or c.asset_id == "RTM" or c.setpoint <= 0.5:
+                continue
+            spec = t.asset(c.asset_id)
+            window = spec["responseMin"] * 60 + c.setpoint / max(spec["rampMWpm"], 0.1) * 60 + 120
+            if now - (c.executing_at or now) < window:
+                continue  # still inside its response window: keep the planned value
+            gap = rel.get(c.asset_id, 1.0) * c.setpoint - c.delivered_mw
+            if gap > 0.5:
+                short += gap
+                lag.append({"asset_id": c.asset_id, "name": c.asset_name, "expected_mw": round(rel.get(c.asset_id, 1.0) * c.setpoint, 1), "metered_mw": round(c.delivered_mw, 1)})
+        return {"planned_mw": round(planned, 1), "measured_shortfall_mw": round(short, 1), "residual_mw": round(planned + short, 1), "lagging": lag}
 
     # ---------------------------------------------------------------- main entry (called every tick)
     def step(self, a: Assessment, now: float, forecast: dict | None, incident_id: str | None, loop_healthy: bool = True) -> list[Decision]:
@@ -233,7 +315,11 @@ class DecisionEngine:
         requirement = self.underlying_requirement(a, d) if d.revision > 1 else a.requirement_mw
         for aid in active:
             d.active_blocks[aid] = d.active_blocks.get(aid, 0) + (1 if reason.startswith("new block") else 0)
-        evals = [evaluate(x, a, HORIZON, self.reliability.get(x["id"], x["reliability"]), x["id"] in self.out_of_service, d.active_blocks.get(x["id"], 0)) for x in t.assets]
+        evals = []
+        for x in t.assets:
+            # GridFlex: an industry is usable only inside an accepted offer, and only on that offer's terms
+            x2, why = self.industrial.terms(x, now) if self.industrial is not None else (x, None)
+            evals.append(evaluate(x2, a, HORIZON, self.reliability.get(x["id"], x["reliability"]), x["id"] in self.out_of_service, d.active_blocks.get(x["id"], 0), why))
         exclude = set(d.excluded)
         derate: dict[str, float] = {}
         passes = []
@@ -524,7 +610,8 @@ class DecisionEngine:
         d.state = d.final_state if state == "COMPLETED" else state
         d.closed_at = now
         d.closed_reason = reason
-        d.settlement = d.meter.settle(self.reliability, d.rates, self.off_peak)
+        overrides = self.industrial.settle(d.id, now) if self.industrial is not None else {}
+        d.settlement = d.meter.settle(self.reliability, d.rates, self.off_peak, overrides)
         for r in d.settlement["rows"]:
             if r["asset_id"] != "RTM" and r["expected_mwh"] > 0.05:
                 self.reliability[r["asset_id"]] = r["reliability_after"]

@@ -12,6 +12,7 @@ methods: `read() -> dict[str, float]` and `send_setpoint(...)`.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 import uuid
@@ -143,6 +144,10 @@ class SimulatedField:
         self.ch_noise: dict[str, float] = {c["id"]: 1.0 for c in self.ch_loads}
         # load shedding in force: fraction of each bus's load disconnected (set by the roster manager)
         self.shed_frac: dict[str, float] = {}
+        # load rotation never removes exactly the planned share: embedded/captive supply and feeder ties keep some
+        # load on — a fixed realisation factor per bus (85–98 %); rot_relief is what feeder metering would measure
+        self.rot_realisation = {b["id"]: 0.85 + (int(hashlib.sha256(b["id"].encode()).hexdigest(), 16) % 1300) / 10000 for b in self.t.internal}
+        self.rot_relief: dict[str, float] = {}
 
     def calibrate(self, bus_factor: dict[str, float], gen_factor: dict[str, float]) -> None:
         """Pull the plant toward live measurements (EWMA). Factors are measured / modelled."""
@@ -333,9 +338,12 @@ class SimulatedField:
                 gen[gid] = max(0.0, gen[gid] - d.params["mw"] * e)
             elif d.kind == "price_spike":
                 rtm = max(rtm, d.params.get("rtm", 11.0))
+        self.rot_relief = {}
         for b, f in self.shed_frac.items():
-            if b in bus_load:
-                bus_load[b] *= 1.0 - min(0.9, f)
+            if b in bus_load and f > 0:
+                relief = bus_load[b] * min(0.9, f) * self.rot_realisation.get(b, 0.95)
+                bus_load[b] -= relief
+                self.rot_relief[b] = relief
         solar = [g for g in self.t.generators if g["type"] == "solar"]
         wind = [g for g in self.t.generators if g["type"] == "wind"]
         s_sum = sum(gen[g["id"]] for g in solar) or 1.0
@@ -420,4 +428,9 @@ class SimulatedField:
                 if fa.soc is not None:
                     pts[f"asset.{aid}.soc"] = fa.soc
                 pts[f"asset.{aid}.setpoint"] = fa.setpoint
+            if fa.spec["type"] == "industrial":
+                # revenue (ABT) meter, independent of the DR gateway: plant demand = operating level with a mild
+                # daily shape, minus whatever it is curtailing for DR, plus meter noise
+                lvl = fa.spec["baselineMW"] * (1 + 0.02 * math.sin(2 * math.pi * (Clock.hour_of_day(now) - 6) / 24))
+                pts[f"asset.{aid}.load"] = max(0.0, lvl - fa.actual + r.gauss(0, 0.003 * fa.spec["baselineMW"]))
         return pts

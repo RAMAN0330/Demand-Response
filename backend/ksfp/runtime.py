@@ -24,6 +24,7 @@ from .decide.engine import DecisionEngine
 from .decide.policy import AutonomyPolicy, Envelope
 from .act.cmdauth import CommandVerifier
 from .decide.shedding import RosterManager
+from .gridflex.industrial import IndustrialRegistry
 from .detect.alarms import AlarmManager, Condition
 from .detect.detector import AnomalyDetector, conditions
 from .forecast.forecaster import Forecaster
@@ -66,6 +67,11 @@ class Runtime:
         # the simulated gateway verifies with its own key ring, exactly as a field gateway would
         self.field.verifier = CommandVerifier({settings.command_key_id: settings.command_key.encode()})
         self.engine = DecisionEngine(self.commands, self.policy, self.reliability)
+        self.industrial = IndustrialRegistry()  # GridFlex: industrial offers, baselines and M&V
+        self.engine.industrial = self.industrial
+        self.last_tick_ts: float | None = None
+        self.rot_measured_mw = 0.0
+        self.rot_residual: dict = {"planned_mw": 0.0, "measured_shortfall_mw": 0.0, "residual_mw": 0.0, "lagging": []}
         self.roster = RosterManager()
         self.lock = asyncio.Lock()
         self.state: GridState | None = None
@@ -121,6 +127,7 @@ class Runtime:
             self.reliability.update(await self.store.load_reliability())
         except Exception as e:  # keep operating from memory
             log.exception("store init failed: %s", e)
+        self.industrial.seed_offers(self.clock.now(), self.reliability)
         self.audit.append(self.clock.now(), "SYSTEM", "ksfp", f"Platform started (source={self.settings.source}, time_scale={self.clock.time_scale}, autonomy L{self.policy.level})")
         if self.settings.run_loops:
             self.tasks = [
@@ -237,8 +244,20 @@ class Runtime:
         # decide (MPC)
         inc = next((i.id for i in sorted(self.alarms.incidents.values(), key=lambda x: x.priority) if i.open and i.category in ("BALANCE", "NETWORK")), None)
         unshed = self.unshed_load(s.bus_load)
-        self.engine.relief_mw = self.roster.shed_mw(unshed)
+        self.rot_measured_mw = sum(self.field.rot_relief.values())  # metered relief, not the roster's plan
+        self.engine.relief_mw = self.rot_measured_mw
         touched = self.engine.step(a, now, self.forecast, inc, self.loop_healthy)
+        for dd in self.engine.track_phases(now):
+            if dd not in touched:
+                touched.append(dd)
+        # GridFlex M&V: revenue-meter readings and accepted MW for industries in the active event
+        loads = {k.split(".")[1]: v for k, (v, _) in values.items() if k.startswith("asset.") and k.endswith(".load") and v is not None}
+        self.industrial.record_meter(now, loads)
+        act = self.engine.active()
+        live_sp = self.commands.live_setpoints()
+        dt = 0.0 if self.last_tick_ts is None else max(0.0, now - self.last_tick_ts)
+        self.last_tick_ts = now
+        self.industrial.tick(act.id if act else None, {k: v for k, v in live_sp.items() if k in self.industrial.participants}, now, dt)
         for dd in touched:
             if dd.incident_id and dd.incident_id in self.alarms.incidents:
                 self.alarms.incidents[dd.incident_id].decision_id = dd.id
@@ -246,13 +265,12 @@ class Runtime:
         # emergency load management: shedding covers only what flexibility cannot (over-drawal, low frequency)
         dd = self.engine.active()
         residual = 0.0
-        if dd and dd.direction == "UP":
-            res = (dd.current.get("plan") or {}).get("residual") or [0.0]
-            residual = max(0.0, float(res[0]))
+        self.rot_residual = self.engine.rotation_residual(a, now)
+        residual = self.rot_residual["residual_mw"]  # persistent planned shortfall + measured under-delivery
         # follow the over-drawal the DR event was opened for: once feeders are open the instantaneous
         # direction can flip to under-drawal, which must not read as "need gone"
         self.roster.dsm_band_mw = a.dsm.band_mw  # first (tolerance) band of the rule table in force
-        self.roster.step(now, s.frequency, dd.direction if dd else a.direction, residual, unshed)
+        self.roster.step(now, s.frequency, dd.direction if dd else a.direction, residual, unshed, measured_mw=self.rot_measured_mw)
         self.field.shed_frac = self.roster.shed_fraction()
         # dispatch
         self.commands.tick(now, self.field, s.asset_state)
@@ -329,9 +347,9 @@ class Runtime:
         }
 
     def unshed_load(self, bus_load: dict[str, float]) -> dict[str, float]:
-        """Bus load as it would be without shedding (the field reports load after feeders are opened)."""
-        f = self.field.shed_frac
-        return {b: v / (1.0 - min(0.9, f.get(b, 0.0))) for b, v in bus_load.items()}
+        """Bus load as it would be without rotation: metered load plus the relief feeder metering measured."""
+        relief = self.field.rot_relief
+        return {b: v + relief.get(b, 0.0) for b, v in bus_load.items()}
 
     def _drain_roster(self, now: float) -> None:
         for kind, ev in self.roster.events:

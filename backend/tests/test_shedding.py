@@ -42,7 +42,7 @@ def run(surge_mw: float, minutes: int, approve_at: float | None = None, surge_mi
         eng.relief_mw = ro.shed_mw(unshed)
         eng.step(a, now, None, None)
         d = eng.active()
-        res = max(0.0, float(((d.current.get("plan") or {}).get("residual") or [0.0])[0])) if d and d.direction == "UP" else 0.0
+        res = eng.rotation_residual(a, now)["residual_mw"]
         ro.step(now, s.frequency, d.direction if d else a.direction, res, unshed)
         o = ro.open_order()
         if o and o.state == "PROPOSED" and approve_at is not None and i >= approve_at * 60:

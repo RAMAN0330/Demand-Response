@@ -46,6 +46,12 @@ class ShedPolicy:
     sheddable_frac: float = 0.30  # share of a 220 kV station's load on rosterable (non-essential) feeders
     dual_auth_mw: float = 200.0
     protected: list[str] = field(default_factory=lambda: list(PROTECTED))
+    # fairness score F = w_h·H + w_n·N + w_d·D over the last `history_days` (each term normalised 0–1 across groups):
+    # H interruption hours, N number of interruptions, D length of the latest interruption. Lower F goes first.
+    fairness_weights: tuple[float, float, float] = (0.5, 0.3, 0.2)
+    history_days: float = 7.0
+    shortfall_ratio: float = 0.9  # escalate when metered relief stays below this share of the planned MW …
+    shortfall_hold_s: float = 120.0  # … for this long
 
 
 @dataclass
@@ -66,6 +72,8 @@ class RosterGroup:
     spells_today: int = 0
     last_restored: float | None = None
     order_id: str | None = None
+    history: list[list] = field(default_factory=list)  # [start, end|None] interruptions, kept for history_days
+    fairness: dict = field(default_factory=dict)  # {F, H_h, N, D_min} — last computed
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -88,6 +96,11 @@ class ShedOrder:
     peak_mw: float = 0.0
     rotations: int = 0
     log: list[dict] = field(default_factory=list)
+    planned_mw: float = 0.0  # forecast relief of the groups currently off (roster model)
+    measured_mw: float = 0.0  # metered relief (feeder metering)
+    short_since: float | None = None
+    escalated: bool = False
+    selection: list[dict] = field(default_factory=list)  # why each group was picked or passed over (latest pick)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -197,10 +210,50 @@ class RosterManager:
             out.append(g)
         return out
 
-    def select(self, mw: float, bus_load: dict[str, float], now: float, exclude: set[str] | None = None) -> list[RosterGroup]:
-        """Fair pick: split the MW across DISCOMs by load share, then least-shed group first within each."""
+    def fairness(self, now: float) -> dict[str, dict]:
+        """F_j = w_h·H_j + w_n·N_j + w_d·D_j, each term normalised by its maximum across groups (0 if none)."""
+        p = self.policy
+        since = now - p.history_days * 86400
+        raw = {}
+        for g in self.groups.values():
+            g.history = [h for h in g.history if (h[1] or now) >= since]
+            spells = [(max(h[0], since), h[1] or now) for h in g.history]
+            hrs = sum(b - a for a, b in spells) / 3600
+            last = (spells[-1][1] - spells[-1][0]) / 60 if spells else 0.0
+            raw[g.id] = (hrs, len(spells), last)
+        mx = [max((v[i] for v in raw.values()), default=0.0) or 1.0 for i in range(3)]
+        w = p.fairness_weights
+        out = {}
+        for gid, (h, n, d) in raw.items():
+            f = w[0] * h / mx[0] + w[1] * n / mx[1] + w[2] * d / mx[2]
+            out[gid] = self.groups[gid].fairness = {"F": round(f, 3), "H_h": round(h, 2), "N": n, "D_min": round(d, 1)}
+        return out
+
+    def _why_not(self, g: RosterGroup, now: float, exclude: set[str]) -> str | None:
+        p = self.policy
+        if g.state != "AVAILABLE":
+            return "already rotated out"
+        if g.id in exclude:
+            return "being replaced in this rotation"
+        if p.max_daily_min - g.minutes_today < 10:
+            return f"daily limit reached ({g.minutes_today:.0f}/{p.max_daily_min:.0f} min)"
+        if g.last_restored is not None and now - g.last_restored < p.max_spell_min * 60:
+            return f"resting until {Clock.hhmmss(g.last_restored + p.max_spell_min * 60)[:5]}"
+        return None
+
+    def select(self, mw: float, bus_load: dict[str, float], now: float, exclude: set[str] | None = None, order: ShedOrder | None = None) -> list[RosterGroup]:
+        """Fair pick: split the MW across DISCOMs by load share, then the lowest fairness score F within each
+        (least recent interruption burden). Hard exclusions (protected feeders are never on the roster; daily limit;
+        rest after a spell) always win over the score. Every pick and every exclusion is recorded with its reason."""
         exclude = exclude or set()
         cand = self._eligible(now, exclude)
+        fair = self.fairness(now)
+        if order is not None:
+            order.selection = [
+                {"group": g.id, "name": g.name, "discom": g.discom, "action": "excluded", "reason": why, "F": fair[g.id]["F"]}
+                for g in self.groups.values()
+                if (why := self._why_not(g, now, exclude)) and why != "already rotated out"
+            ]
         if mw <= 0 or not cand:
             return []
         load_by: dict[str, float] = {}
@@ -208,7 +261,7 @@ class RosterManager:
             load_by[g.discom] = load_by.get(g.discom, 0.0) + self.group_mw(g, bus_load)
         total = sum(load_by.values()) or 1.0
         quota = {d: mw * v / total for d, v in load_by.items()}
-        pool = sorted(cand, key=lambda g: (g.minutes_today, g.last_restored or 0.0, g.id))
+        pool = sorted(cand, key=lambda g: (fair[g.id]["F"], g.minutes_today, g.last_restored or 0.0, g.id))
         picked: list[RosterGroup] = []
         got = 0.0
         while got < mw and pool:
@@ -217,7 +270,15 @@ class RosterManager:
             g = next(x for x in pool if x.discom == d)
             pool.remove(g)
             picked.append(g)
-            got += self.group_mw(g, bus_load)
+            gmw = self.group_mw(g, bus_load)
+            got += gmw
+            if order is not None:
+                order.selection.append(
+                    {"group": g.id, "name": g.name, "discom": g.discom, "action": "picked", "F": fair[g.id]["F"], "mw": round(gmw, 1),
+                     "reason": f"lowest burden in {d} (F {fair[g.id]['F']:.2f}: {fair[g.id]['H_h']:.1f} h, {fair[g.id]['N']} interruption(s) in {self.policy.history_days:.0f} d); {d} below its load-share quota"}
+                )
+        if order is not None:
+            order.selection += [{"group": g.id, "name": g.name, "discom": g.discom, "action": "next", "F": fair[g.id]["F"], "reason": "eligible — next in line"} for g in pool[:6]]
         return picked
 
     def _shed(self, g: RosterGroup, order: ShedOrder, now: float) -> None:
@@ -225,9 +286,12 @@ class RosterManager:
         spell = min(p.max_spell_min, p.max_daily_min - g.minutes_today) * 60
         g.state, g.since, g.until, g.order_id = "SHED", now, now + spell, order.id
         g.spells_today += 1
+        g.history.append([now, None])
 
     def _restore(self, g: RosterGroup, now: float) -> None:
         g.state, g.since, g.until, g.order_id, g.last_restored = "AVAILABLE", None, None, None, now
+        if g.history and g.history[-1][1] is None:
+            g.history[-1][1] = now
 
     # ------------------------------------------------------------------ operator actions
     def propose(self, mw: float, reason: str, source: str, now: float) -> ShedOrder:
@@ -252,7 +316,7 @@ class RosterManager:
         if o.needs_dual and len(o.approvals) < 2:
             self._emit("approval", f"First approval by {user} for {o.mw:.0f} MW load rotation — awaiting dual authorisation", o)
             return o
-        groups = self.select(o.mw, bus_load, now)
+        groups = self.select(o.mw, bus_load, now, order=o)
         if not groups:
             o.state, o.closed, o.closed_reason = "CANCELLED", now, "No roster group eligible (daily limits / rest periods)"
             self._emit("exhausted", f"Load rotation {o.id} could not start: roster exhausted", o)
@@ -285,8 +349,10 @@ class RosterManager:
         return o
 
     # ------------------------------------------------------------------ every tick
-    def step(self, now: float, frequency: float, direction: str, residual_mw: float, bus_load: dict[str, float]) -> None:
-        """residual_mw: over-drawal that paid flexibility does not cover (already includes MW being shed)."""
+    def step(self, now: float, frequency: float, direction: str, residual_mw: float, bus_load: dict[str, float], measured_mw: float | None = None) -> None:
+        """residual_mw: over-drawal that paid flexibility does not cover (already includes MW being shed).
+        measured_mw: metered relief from the feeders currently open — replaces the roster's planned MW wherever
+        it is known, so a rotation that under-delivers is topped up instead of being marked successful."""
         p = self.policy
         dt = 0.0 if self.last_tick is None else max(0.0, now - self.last_tick)
         self.last_tick = now
@@ -297,7 +363,9 @@ class RosterManager:
                 g.minutes_today, g.spells_today = 0.0, 0
         od = direction == "UP"
         self.residual_mw = residual_mw if od else 0.0
-        shed_now = self.shed_mw(bus_load)
+        planned_now = self.shed_mw(bus_load)
+        shed_now = measured_mw if measured_mw is not None else planned_now
+        self.measured_mw = shed_now
         for g in self.groups.values():
             if g.state == "SHED":
                 g.minutes_today += dt / 60
@@ -305,6 +373,15 @@ class RosterManager:
         if o and o.state in ("ACTIVE", "RESTORING"):
             o.shed_minutes_mw += shed_now * dt / 60
             o.peak_mw = max(o.peak_mw, shed_now)
+            o.planned_mw, o.measured_mw = round(planned_now, 1), round(shed_now, 1)
+            # reconcile planned vs metered relief; escalate once if it stays short
+            if o.state == "ACTIVE" and planned_now > 20 and shed_now < p.shortfall_ratio * planned_now:
+                o.short_since = o.short_since or now
+                if not o.escalated and now - o.short_since >= p.shortfall_hold_s:
+                    o.escalated = True
+                    self._emit("shortfall", f"{o.id}: metered relief {shed_now:.0f} MW is {shed_now / planned_now * 100:.0f}% of the {planned_now:.0f} MW planned — residual re-estimated from metering; further groups follow the approved order", o)
+            else:
+                o.short_since = None
 
         # 1) propose when flexibility is exhausted and frequency is below the band
         if o is None:
@@ -333,7 +410,7 @@ class RosterManager:
         for g in list(shed):
             if g.until is not None and now >= g.until:
                 mw = self.group_mw(g, bus_load)
-                repl = self.select(mw * 0.9, bus_load, now, exclude={x.id for x in shed}) if o.state == "ACTIVE" else []
+                repl = self.select(mw * 0.9, bus_load, now, exclude={x.id for x in shed}, order=o) if o.state == "ACTIVE" else []
                 for r in repl:
                     self._shed(r, o, now)
                 self._restore(g, now)
@@ -346,7 +423,9 @@ class RosterManager:
                     self._emit("rotated", f"Rotation: {g.name} restored after {g.minutes_today:.0f} min today; {', '.join(r.name for r in repl)} now off", o, out=[r.id for r in repl], back=g.id)
                 else:
                     self._emit("exhausted", f"Roster exhausted — {g.name} restored at its limit with no eligible replacement; {mw:.0f} MW uncovered", o)
-        shed_now = self.shed_mw(bus_load)
+        # groups may have changed above: rescale the model by this tick's metered/planned ratio
+        realised = (shed_now / planned_now) if planned_now > 1.0 else 1.0
+        shed_now = self.shed_mw(bus_load) * realised
 
         # 4) give load back: all of it when the over-drawal is gone, or one group when more is shed than needed
         relief_needed = self.residual_mw  # what shedding must still cover (the residual already counts shed MW)
@@ -358,7 +437,13 @@ class RosterManager:
         surplus = shed_now - relief_needed
         trim = o.state == "ACTIVE" and shed and surplus > smallest + p.restore_margin_mw
         if o.state == "RESTORING" or trim:
-            if shed and now - self.last_restore >= p.restore_stagger_s:
+            # stagger: one group per interval, tightened while restoring so every group is back one at a time before
+            # its spell limit would force several back together (a rebound spike)
+            gap = p.restore_stagger_s
+            if o.state == "RESTORING" and shed:
+                soonest = min((g.until for g in shed if g.until), default=now + gap * len(shed))
+                gap = min(gap, max(20.0, (soonest - now) / len(shed)))
+            if shed and now - self.last_restore >= gap:
                 if o.state == "RESTORING":
                     g = min(shed, key=lambda x: x.since or now)  # longest out goes back first
                 else:  # shedding more than needed: give back the largest group that still leaves enough off
@@ -375,7 +460,7 @@ class RosterManager:
 
         # 5) top up if the residual grew beyond what is shed
         if relief_needed - shed_now > p.min_residual_mw:  # the approved order covers the uncovered residual
-            extra = self.select(relief_needed - shed_now, bus_load, now, exclude={g.id for g in self.groups.values() if g.state == "SHED"})
+            extra = self.select(relief_needed - shed_now, bus_load, now, exclude={g.id for g in self.groups.values() if g.state == "SHED"}, order=o)
             if extra:
                 for r in extra:
                     self._shed(r, o, now)
@@ -385,11 +470,14 @@ class RosterManager:
     def summary(self, bus_load: dict[str, float]) -> dict:
         o = self.open_order()
         out = [g for g in self.groups.values() if g.state == "SHED"]
+        planned = self.shed_mw(bus_load)
+        measured = getattr(self, "measured_mw", planned) if out else 0.0
         return {
-            "active_mw": round(self.shed_mw(bus_load), 1),
+            "active_mw": round(measured, 1),  # metered relief
+            "planned_mw": round(planned, 1),  # roster forecast for the groups currently out
             "groups_out": len(out),
             "residual_mw": round(self.residual_mw, 1),
-            "order": {"id": o.id, "state": o.state, "mw": o.mw, "needs_dual": o.needs_dual, "approvals": len(o.approvals)} if o else None,
+            "order": {"id": o.id, "state": o.state, "mw": o.mw, "needs_dual": o.needs_dual, "approvals": len(o.approvals), "planned_mw": o.planned_mw, "measured_mw": o.measured_mw, "escalated": o.escalated} if o else None,
 "od_limit_mw": round(self.od_limit, 1),
             "next_rotation": min((g.until for g in out if g.until), default=None),
             "roster_source": ROSTER_SOURCE,

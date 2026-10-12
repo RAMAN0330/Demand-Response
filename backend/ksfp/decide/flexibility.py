@@ -107,6 +107,7 @@ def evaluate(
     reliability: float,
     out_of_service: bool = False,
     active_blocks: int = 0,
+    exclusion: str | None = None,
 ) -> FlexEval:
     s = a.state
     up = a.direction == "UP"
@@ -153,6 +154,8 @@ def evaluate(
         notes.append(f"{locked:g} MW locked to ancillary (SRAS/TRAS)")
     if out_of_service:
         excl.append("Marked out of service by operator/engineer")
+    if exclusion:
+        excl.append(exclusion)  # e.g. GridFlex: no accepted offer covering this window
     if available < 0.5:
         excl.append("No headroom in this direction")
     rebound = asset["reboundFrac"] * s.prices.off_peak  # each delivered kWh brings back reboundFrac kWh later

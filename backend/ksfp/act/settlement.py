@@ -64,9 +64,14 @@ class Meter:
         self.avoided_dsm_rs += without - actual
         self.seconds += dt
 
-    def settle(self, reliability: dict[str, float], rates: dict[str, float] | None = None, prices_off_peak: float = 3.2, rtm_price: float = 7.2) -> dict:
-        """rates: pay rate per asset locked at dispatch (₹/kWh) — the same rate the optimiser costed."""
+    def settle(self, reliability: dict[str, float], rates: dict[str, float] | None = None, prices_off_peak: float = 3.2, overrides: dict[str, dict] | None = None, rtm_price: float = 7.2) -> dict:
+        """rates: pay rate per asset locked at dispatch (₹/kWh) — the same rate the optimiser costed.
+        overrides: per-asset settlement from a programme's own M&V (GridFlex industrial: baseline − meter), which
+        replaces telemetry-based delivery and payment for that participant."""
         rates = rates or {}
+        overrides = overrides or {}
+        for aid in overrides:
+            self.delivered_mwh.setdefault(aid, 0.0)
         t = topology()
         rows = []
         for aid, d in self.delivered_mwh.items():
@@ -81,6 +86,9 @@ class Meter:
                 pf = 1.0 if typ == "generation" else perf_factor(perf)
                 name = spec["name"]
             rebound_frac = 0.0 if aid == "RTM" else t.asset(aid)["reboundFrac"]
+            ov = overrides.get(aid)
+            if ov:  # programme M&V is the settlement of record for this participant
+                d, e, perf, pf, rate = ov["delivered_mwh"], ov["expected_mwh"], ov["performance"], ov["perf_factor"], ov["rate_rs"]
             r_old = reliability.get(aid, 1.0)
             rows.append(
                 {
@@ -93,7 +101,8 @@ class Meter:
                     "performance": round(perf, 3),
                     "rate_rs": rate,
                     "perf_factor": round(pf, 3),
-                    "payment_rs": round(d * 1000 * rate * pf, 0),
+                    "payment_rs": ov["payment_rs"] if ov else round(d * 1000 * rate * pf, 0),
+                    "basis": ov["basis"] if ov else "telemetry",
                     "rebound_rs": round(d * rebound_frac * 1000 * prices_off_peak, 0),
                     "reliability_before": r_old,
                     "reliability_after": r_old if aid == "RTM" else round(min(0.995, 0.8 * r_old + 0.2 * min(1.0, perf)), 4),
