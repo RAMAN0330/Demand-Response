@@ -211,6 +211,7 @@ def backdrop(w: int, h: int, dark: bool = True) -> Image.Image:
 
 
 BG = backdrop(W, H)
+BG_CARD = BG.copy()  # title and end cards: no window shadow
 WIN_MASK = Image.new("L", (WW, WH), 0)
 ImageDraw.Draw(WIN_MASK).rounded_rectangle((0, 0, WW - 1, WH - 1), radius=0 if FMT == "16x9" else 26, fill=255)
 SHADOW = None
@@ -351,7 +352,7 @@ def chrome(img: Image.Image, chapter: str, idx: int, n: int, prog: float, t_in: 
 
 # ------------------------------------------------------------------ cards
 def title_card(t: float, dur: float, split: float) -> Image.Image:
-    img = BG.copy()
+    img = BG_CARD.copy()
     d = ImageDraw.Draw(img, "RGBA")
     big = W < H
     if t < split:  # hook: kinetic lines over a demand curve breaching its schedule
@@ -412,7 +413,7 @@ def title_card(t: float, dur: float, split: float) -> Image.Image:
 
 
 def end_card(t: float, dur: float) -> Image.Image:
-    img = BG.copy()
+    img = BG_CARD.copy()
     d = ImageDraw.Draw(img, "RGBA")
     big = W < H
     s = 150 if big else 120
@@ -601,7 +602,7 @@ for fi in range(nfr):
         u = (tl - (sc["dur"] - XF)) / XF
         b = scene_frame(nxt, 0.0)
         img = Image.blend(img, b, ease(u))
-        img = Image.blend(img, Image.new("RGB", img.size, NAVY2), 0.62 * math.sin(math.pi * u))
+        img = Image.blend(img, Image.new("RGB", img.size, NAVY2), 0.85 * math.sin(math.pi * u))
     if fi < 10:
         img = Image.blend(Image.new("RGB", img.size, NAVY2), img, fi / 10)
     if fi > nfr - 18:
