@@ -66,7 +66,7 @@ interface Policy {
 }
 interface Shedding {
   policy: Policy
-  summary: { active_mw: number; groups_out: number; residual_mw: number; od_limit_mw: number; next_rotation: number | null }
+  summary: { active_mw: number; groups_out: number; residual_mw: number; od_limit_mw: number; next_rotation: number | null; roster_source?: string }
   groups: Group[]
   orders: Order[]
 }
@@ -169,10 +169,30 @@ export function SheddingPage() {
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] gap-3">
         <Panel
-          title="Roster board"
+          title={
+            <span className="flex items-center gap-2">
+              Roster board
+              {sm.roster_source === 'DEMO' && (
+                <span
+                  className="rounded bg-amber-100 px-1.5 py-px text-[9.5px] font-bold tracking-wide text-amber-800"
+                  title="Groups, the 30 % sheddable share and protected-feeder counts are generated demonstration data. Replace with the DISCOM's approved feeder-level roster (measured loads, protected classifications, switching authority) before any operational use."
+                >
+                  DEMO ROSTER
+                </span>
+              )}
+            </span>
+          }
           aside={
-            <span className="flex items-center gap-1 text-[11px] text-slate-500">
-              <ShieldCheck className="size-3.5 text-emerald-600" /> never shed: {p.protected.join(' · ')}
+            <span className="flex min-w-0 items-center gap-3 text-[11px] text-slate-500">
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <ShieldCheck className="size-3.5 shrink-0 text-emerald-600" /> never shed: {p.protected.join(' · ')}
+              </span>
+              <span
+                className="shrink-0 rounded border border-slate-200 px-1.5 py-px text-[10px] whitespace-nowrap text-slate-500"
+                title="Under-frequency (UFR) and df/dt relays act under the approved protection scheme. This platform proposes roster shedding for approval only; it never delays, disables or overrides that protection."
+              >
+                UFR / df/dt protection independent
+              </span>
             </span>
           }
           bodyClass="flex flex-col gap-2"

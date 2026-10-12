@@ -127,11 +127,19 @@ def simulate(plan: Plan, a: Assessment, evals: list[FlexEval], active_mw: dict[s
     else:
         st = "warn" if after.max_loading > 0.9 else "pass"
         det = f"Max loading {t.line_label(after.max_line)} {after.max_loading * 100:.0f}% (was {before.loading[after.max_line] * 100:.0f}%)."
-    checks.append(Check("network", "Line loading after dispatch (DC power flow)", st, det))
+    checks.append(Check("network", "Line loading after dispatch (DC screening model — not a utility network study)", st, det))
 
     vmin_bus = min((b for b in after.voltage if not b.startswith("X_")), key=lambda b: after.voltage[b])
     vmin = after.voltage[vmin_bus]
-    checks.append(Check("voltage", "Bus voltage 0.95–1.05 pu (estimated)", "warn" if vmin < 0.95 else "pass", f"Lowest {vmin_bus} {vmin:.3f} pu."))
+    checks.append(
+        Check(
+            "voltage",
+            "Voltage screening 0.95–1.05 pu (heuristic from line loading)",
+            "warn" if vmin < 0.95 else "pass",
+            f"Lowest {vmin_bus} ≈{vmin:.3f} pu. Screening estimate only: a DC model does not solve voltage or reactive power — "
+            "voltage compliance needs an AC load flow on the validated network.",
+        )
+    )
 
     fb = minutes[:15]
     pe = sum(x["planned"] for x in fb)

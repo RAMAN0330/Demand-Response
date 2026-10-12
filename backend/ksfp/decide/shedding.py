@@ -21,6 +21,11 @@ from ksfp.core.clock import Clock
 from ksfp.ingest.channels import channels
 
 LETTERS = "ABCDEFGHIJKL"
+# The shipped roster is DEMONSTRATION data: groups are built from 220 kV stations, the sheddable share is a flat
+# 30 % and protected-feeder counts are generated. It cannot establish that any real feeder is safe to open —
+# replace it with the DISCOM's approved feeder-level roster (measured loads, protected classifications,
+# switching authority) before any operational use. Independent UFR / df/dt protection is never touched here.
+ROSTER_SOURCE = "DEMO"
 STATIONS_PER_GROUP = 4  # roster blocks of ~3–4 stations keep each step small (≈100–250 MW)
 PROTECTED = ["Hospitals", "Water works", "Railway traction", "Defence"]
 
@@ -387,5 +392,6 @@ class RosterManager:
             "order": {"id": o.id, "state": o.state, "mw": o.mw, "needs_dual": o.needs_dual, "approvals": len(o.approvals)} if o else None,
 "od_limit_mw": round(self.od_limit, 1),
             "next_rotation": min((g.until for g in out if g.until), default=None),
+            "roster_source": ROSTER_SOURCE,
             "shed_channels": {c: g.id for g in out for c in g.channels},
         }

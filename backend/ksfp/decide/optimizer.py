@@ -37,7 +37,11 @@ from .flexibility import BLOCK_H, FlexEval
 
 STRATEGIES = {
     "NONE": {"label": "Do nothing", "types": set(), "desc": "Absorb the deviation and pay DSM charges."},
-    "RTM": {"label": "Buy in RTM", "types": {"rtm"}, "desc": "Real-Time Market purchase (≈1 h gate-closure lead)."},
+    "RTM": {
+        "label": "Buy in RTM",
+        "types": {"rtm"},
+        "desc": "Real-Time Market purchase for a deficit — delivery in the 4 blocks after the session (≈1 h lead). Selling surplus is not modelled.",
+    },
     "GEN": {"label": "Re-dispatch generation", "types": {"generation"}, "desc": "Ramp intra-state thermal/hydro headroom."},
     "BESS": {"label": "BESS only", "types": {"bess"}, "desc": "Discharge grid batteries."},
     "DR": {"label": "Demand response only", "types": {"interruptible", "shiftable", "industrial", "der"}, "desc": "Curtail or shift flexible demand."},
@@ -448,6 +452,8 @@ def compare(a: Assessment, evals: list[FlexEval], requirement_mw: float, blocks:
                 "time_to_effect_min": min((topology().asset(al.asset_id)["responseMin"] if al.type != "rtm" else RTM_LEAD_BLOCKS * 15 for al in p.allocations), default=None),
                 "max_line_loading": p.max_loading_after["loading"],
                 "resources": len(p.allocations),
+                # RTM here is a purchase: it can only help a deficit (UP); a surplus would need a sell path
+                "applicable": not (sid == "RTM" and a.direction != "UP"),
             }
         )
     return out

@@ -43,6 +43,10 @@ class Command:
     sent_at: float | None = None
     acked_at: float | None = None
     executing_at: float | None = None
+    # four different clocks: acknowledgement (comms) ≠ first physical response ≠ full output ≠ delivered energy
+    start_mw: float | None = None  # metered response when the command was sent
+    first_response_at: float | None = None  # metered output moved ≥10 % of the way to the setpoint
+    full_output_at: float | None = None  # within 10 % of the setpoint
     closed_at: float | None = None
     delivered_mw: float = 0.0
     under_delivering: bool = False
@@ -133,6 +137,7 @@ class CommandManager:
                 c.signature = c.auth["mac"]
                 gw.send_setpoint(c.asset_id, c.setpoint, c.id, now, c.auth, c.decision_id, c.kind)
                 c.sent_at = now
+                c.start_mw = float(asset_state.get(c.asset_id, {}).get("mw", 0.0))
                 c.move("SENT", now)
                 self.events.append(("sent", c))
             elif c.state == "SENT":
@@ -151,6 +156,12 @@ class CommandManager:
             elif c.state == "EXECUTING" and c.asset_id != "RTM":
                 spec = topology().asset(c.asset_id)
                 c.delivered_mw = float(asset_state.get(c.asset_id, {}).get("mw", 0.0))
+                step = c.setpoint - (c.start_mw or 0.0)
+                progress = 1.0 if abs(step) < 1.0 else (c.delivered_mw - (c.start_mw or 0.0)) / step
+                if c.first_response_at is None and progress >= 0.1:
+                    c.first_response_at = now
+                if c.full_output_at is None and progress >= 0.9:
+                    c.full_output_at = now
                 settle = spec["responseMin"] * 60 + (c.setpoint / max(spec["rampMWpm"], 0.1)) * 60 + 120
                 if now - (c.executing_at or now) > settle:
                     was = c.under_delivering

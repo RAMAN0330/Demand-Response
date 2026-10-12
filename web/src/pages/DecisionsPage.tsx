@@ -93,6 +93,7 @@ interface Full extends DecisionSummary {
       total_rs: number
       resource_rs: number
       residual_dsm_rs: number
+      applicable?: boolean
       coverage_pct: number
       time_to_effect_min: number | null
       max_line_loading: number
@@ -521,6 +522,7 @@ function AltTab({ d }: { d: Full }) {
   }
   const flags = (x: Opt) => {
     const out: { t: string; tone: 'good' | 'warn' | 'bad' }[] = []
+    if (x.applicable === false) return [{ t: 'purchase only — n/a for a surplus', tone: 'warn' as const }]
     const n = network(x)
     if (n) out.push(n)
     if (x.id !== 'NONE' && x.coverage_pct < 90) out.push({ t: x.coverage_pct < 1 ? 'no coverage' : `covers only ${x.coverage_pct.toFixed(0)}%`, tone: 'warn' })
@@ -714,6 +716,9 @@ const CMD_STYLE: Record<string, 'info' | 'warning' | 'success' | 'destructive' |
   FAILED: 'destructive',
 }
 
+// seconds from send to a later milestone; "—" until it happens (acknowledged is not the same as delivering)
+const since = (from: number | null | undefined, to: number | null | undefined) => (from == null || to == null ? '—' : `${Math.max(0, to - from).toFixed(0)}s`)
+
 function CommandsTab({ d }: { d: Full }) {
   const cmds = [...(d.commands ?? [])].reverse()
   return (
@@ -730,7 +735,9 @@ function CommandsTab({ d }: { d: Full }) {
               <TableHead className="text-right">Setpoint</TableHead>
               <TableHead>State</TableHead>
               <TableHead className="text-right">Delivered</TableHead>
-              <TableHead>Signature</TableHead>
+              <TableHead className="text-right" title="Seconds after send: gateway acknowledgement → first metered response (10 %) → full output (90 %)">
+                Ack · first · full
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -749,7 +756,12 @@ function CommandsTab({ d }: { d: Full }) {
                   )}
                 </TableCell>
                 <TableCell className="text-right font-mono text-[11px]">{c.state === 'EXECUTING' ? `${c.delivered_mw.toFixed(0)} MW` : '—'}</TableCell>
-                <TableCell className="font-mono text-[10px] text-slate-400">{c.signature}</TableCell>
+                <TableCell
+                  className="text-right font-mono text-[10px] whitespace-nowrap text-slate-500"
+                  title={c.auth ? `${c.auth.alg} · key ${c.auth.key_id} · ${c.auth.mac.slice(0, 16)}…` : 'not sent yet'}
+                >
+                  {since(c.sent_at, c.acked_at)} · {since(c.sent_at, c.first_response_at)} · {since(c.sent_at, c.full_output_at)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

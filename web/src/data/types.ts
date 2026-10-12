@@ -209,6 +209,9 @@ export interface Command {
   signature: string
   sent_at: number | null
   acked_at: number | null
+  first_response_at?: number | null
+  full_output_at?: number | null
+  auth?: { alg: string; key_id: string; issued_at: number; mac: string } | null
   delivered_mw: number
   under_delivering: boolean
   note: string
