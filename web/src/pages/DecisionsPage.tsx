@@ -144,6 +144,9 @@ interface Full extends DecisionSummary {
     payments_rs: number
     avoided_dsm_rs: number
     net_benefit_rs: number
+    rebound_cost_rs?: number
+    rtm_cost_rs?: number
+    ledger?: { key: string; label: string; rs: number; subtotal?: boolean }[]
     delivered_mwh: number
     expected_mwh: number
     duration_min: number
@@ -802,45 +805,69 @@ function SettleTab({ d }: { d: Full }) {
   const s = d.settlement!
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="grid shrink-0 grid-cols-4 gap-2">
+      <div className="grid shrink-0 grid-cols-5 gap-2">
         <Stat label="DSM avoided" value={fmtRs(s.avoided_dsm_rs)} tone="good" />
-        <Stat label="Payments" value={fmtRs(s.payments_rs)} />
-        <Stat label="Net benefit" value={fmtRs(s.net_benefit_rs)} tone={s.net_benefit_rs >= 0 ? 'good' : 'warn'} />
+        <Stat label="Payments (incl. RTM)" value={fmtRs(s.payments_rs)} />
+        <Stat label="Rebound energy" value={fmtRs(s.rebound_cost_rs ?? 0)} />
+        <Stat label="Net savings" value={fmtRs(s.net_benefit_rs)} tone={s.net_benefit_rs >= 0 ? 'good' : 'warn'} />
         <Stat label="Delivered / expected" value={`${s.delivered_mwh.toFixed(1)} / ${s.expected_mwh.toFixed(1)} MWh`} />
       </div>
-      <div className="min-h-0 flex-1">
-        <FitPager
-          items={s.rows}
-          rowHeight={33}
-          render={(slice) => (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Resource</TableHead>
-                  <TableHead className="text-right">Delivered MWh</TableHead>
-                  <TableHead className="text-right">Perf.</TableHead>
-                  <TableHead className="text-right">PF</TableHead>
-                  <TableHead className="text-right">Payment</TableHead>
-                  <TableHead className="text-right">Reliability</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {slice.map((r) => (
-                  <TableRow key={r.asset_id}>
-                    <TableCell className="max-w-[180px] truncate text-xs">{r.name}</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{r.delivered_mwh.toFixed(1)}</TableCell>
-                    <TableCell className={cn('text-right font-mono text-[11px]', r.performance < 0.9 && 'text-amber-700')}>{(r.performance * 100).toFixed(0)}%</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{r.perf_factor.toFixed(2)}</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{fmtRs(r.payment_rs)}</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">
-                      {(r.reliability_before * 100).toFixed(0)}→{(r.reliability_after * 100).toFixed(0)}%
-                    </TableCell>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,15rem)_minmax(0,1fr)] gap-3">
+        {s.ledger && (
+          <div className="rounded-xl border border-slate-200/80 bg-white/70 p-2.5">
+            <div className="mb-1.5 text-[11px] font-semibold text-slate-600">Counterfactual ledger</div>
+            {s.ledger.map((l) => (
+              <div
+                key={l.key}
+                className={cn(
+                  'flex items-baseline justify-between gap-2 py-0.5 text-[11.5px]',
+                  l.subtotal ? 'mt-0.5 border-t border-slate-200 pt-1 font-semibold text-slate-800' : 'text-slate-600',
+                )}
+              >
+                <span className="truncate">{l.label}</span>
+                <span className={cn('font-mono tabular-nums', l.subtotal ? (l.rs >= 0 ? 'text-emerald-700' : 'text-rose-600') : l.rs < 0 ? 'text-slate-700' : 'text-slate-700')}>
+                  {l.rs < 0 ? '−' : ''}
+                  {fmtRs(Math.abs(l.rs))}
+                </span>
+              </div>
+            ))}
+            <div className="mt-1.5 text-[10px] leading-snug text-slate-400">Every savings figure for this event comes from these lines; they reconcile exactly.</div>
+          </div>
+        )}
+        <div className="min-h-0">
+          <FitPager
+            items={s.rows}
+            rowHeight={33}
+            render={(slice) => (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Resource</TableHead>
+                    <TableHead className="text-right">Delivered MWh</TableHead>
+                    <TableHead className="text-right">Perf.</TableHead>
+                    <TableHead className="text-right">PF</TableHead>
+                    <TableHead className="text-right">Payment</TableHead>
+                    <TableHead className="text-right">Reliability</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        />
+                </TableHeader>
+                <TableBody>
+                  {slice.map((r) => (
+                    <TableRow key={r.asset_id}>
+                      <TableCell className="max-w-[180px] truncate text-xs">{r.name}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px]">{r.delivered_mwh.toFixed(1)}</TableCell>
+                      <TableCell className={cn('text-right font-mono text-[11px]', r.performance < 0.9 && 'text-amber-700')}>{(r.performance * 100).toFixed(0)}%</TableCell>
+                      <TableCell className="text-right font-mono text-[11px]">{r.perf_factor.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px]">{fmtRs(r.payment_rs)}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px]">
+                        {(r.reliability_before * 100).toFixed(0)}→{(r.reliability_after * 100).toFixed(0)}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          />
+        </div>
       </div>
     </div>
   )
@@ -878,7 +905,7 @@ function EventKpis({ d }: { d: Full }) {
       <Stat
         label={st ? 'Net benefit' : 'Penalties avoided so far'}
         value={fmtRs(st ? st.net_benefit_rs : (o.avoided_dsm_rs ?? 0))}
-        sub={st ? `${fmtRs(st.avoided_dsm_rs)} avoided − ${fmtRs(st.payments_rs)} paid` : 'vs doing nothing'}
+        sub={st ? `${fmtRs(st.avoided_dsm_rs)} avoided − ${fmtRs(st.payments_rs + (st.rebound_cost_rs ?? 0))} paid & rebound` : 'vs doing nothing'}
         tone="good"
       />
     </div>

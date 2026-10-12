@@ -134,6 +134,7 @@ class DecisionEngine:
     trigger_since: float | None = None  # anti-flapping: condition must persist TRIGGER_HOLD_S
     log: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, decision_id, message) drained by runtime
     relief_mw: float = 0.0  # load currently shed by the roster manager (set by the runtime every tick)
+    off_peak: float = 3.2  # ₹/kWh for rebound energy in settlement (follows live prices)
 
     # ---------------------------------------------------------------- helpers
     def active(self) -> Decision | None:
@@ -162,6 +163,7 @@ class DecisionEngine:
     # ---------------------------------------------------------------- main entry (called every tick)
     def step(self, a: Assessment, now: float, forecast: dict | None, incident_id: str | None, loop_healthy: bool = True) -> list[Decision]:
         touched: list[Decision] = []
+        self.off_peak = a.state.prices.off_peak
         d = self.active()
         block = Clock.block_of(now)
         new_block = block != self.last_block
@@ -522,13 +524,13 @@ class DecisionEngine:
         d.state = d.final_state if state == "COMPLETED" else state
         d.closed_at = now
         d.closed_reason = reason
-        d.settlement = d.meter.settle(self.reliability, d.rates)
+        d.settlement = d.meter.settle(self.reliability, d.rates, self.off_peak)
         for r in d.settlement["rows"]:
             if r["asset_id"] != "RTM" and r["expected_mwh"] > 0.05:
                 self.reliability[r["asset_id"]] = r["reliability_after"]
         d.narrative["outcome"] = (
             f"Closed ({d.state}): delivered {d.settlement['delivered_mwh']:.1f} of {d.settlement['expected_mwh']:.1f} MWh expected; "
-            f"DSM avoided {fmt_rs(d.settlement['avoided_dsm_rs'])}, payments {fmt_rs(d.settlement['payments_rs'])}, net benefit {fmt_rs(d.settlement['net_benefit_rs'])}."
+            f"DSM avoided {fmt_rs(d.settlement['avoided_dsm_rs'])}, payments {fmt_rs(d.settlement['payments_rs'])}, rebound {fmt_rs(d.settlement['rebound_cost_rs'])}, net savings {fmt_rs(d.settlement['net_benefit_rs'])}."
         )
         self.log.append(("SETTLEMENT", d.id, d.narrative["outcome"]))
 

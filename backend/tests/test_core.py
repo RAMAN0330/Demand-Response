@@ -412,3 +412,19 @@ def test_dsm_tiers_boundaries_and_worked_example():
     bad = dict(DEFAULT_DSM, overdrawal={"LOW": [1, 2], "NORMAL": [1, 2], "HIGH": [1, 2]})
     with pytest.raises(ValueError):
         normalise(bad)
+
+
+def test_settlement_ledger_reconciles():
+    from ksfp.act.settlement import Meter
+
+    m = Meter(delivered_mwh={"A_HSKT": 4.0, "RTM": 2.0}, expected_mwh={"A_HSKT": 5.0, "RTM": 2.0})
+    m.do_nothing_rs, m.actual_dsm_rs = 300_000.0, 120_000.0
+    s = m.settle({}, {"A_HSKT": 2.0, "RTM": 7.25}, prices_off_peak=3.2)
+    pf = (0.8 - 0.5) / 0.4
+    assert s["resource_payments_rs"] == round(4.0 * 1000 * 2.0 * pf)
+    assert s["rtm_cost_rs"] == round(2.0 * 1000 * 7.25)
+    assert s["rebound_cost_rs"] == round(4.0 * topology().asset("A_HSKT")["reboundFrac"] * 1000 * 3.2)
+    assert s["avoided_dsm_rs"] == 180_000.0
+    assert s["net_benefit_rs"] == round(180_000 - s["resource_payments_rs"] - s["rtm_cost_rs"] - s["rebound_cost_rs"])
+    lines = {x["key"]: x["rs"] for x in s["ledger"]}
+    assert lines["counterfactual_dsm"] + lines["actual_dsm"] + lines["payments"] + lines["rtm"] + lines["rebound"] == s["net_benefit_rs"]
