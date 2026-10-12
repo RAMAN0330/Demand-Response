@@ -14,6 +14,7 @@ import { BUSES, GENERATORS, LINES, lineLabel } from '@/data/topology'
 import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { UsersAdmin } from '@/components/auth/UsersAdmin'
 import { useAuth } from '@/store/useAuth'
 import { clockS } from '@/store/useLive'
 
@@ -27,7 +28,7 @@ export function AdminPage() {
             { id: 'sources', label: 'Data sources', content: <SourcesTab /> },
             { id: 'sim', label: 'Simulator & drills', content: <SimulatorTab /> },
             { id: 'dsm', label: 'DSM rules', content: <DsmTab /> },
-            { id: 'users', label: 'Users & roles', content: <UsersTab /> },
+            { id: 'users', label: 'Users & roles', content: <UsersAdmin /> },
           ]}
         />
       </Panel>
@@ -679,61 +680,6 @@ function DsmTab() {
             </Table>
           </div>
         ))}
-      </div>
-    </div>
-  )
-}
-
-const ROLE_PERMS: Record<string, string> = {
-  operator: 'Monitor, acknowledge alarms, approve/reject/abort decisions, what-if',
-  shift_in_charge: 'Operator + dual authorisation, shelve alarms, autonomy level & kill switch, resources',
-  analyst: 'Read-only, what-if, reports',
-  engineer: 'Configuration, safety envelope, DSM rules, simulator, resources',
-  admin: 'All permissions incl. user management',
-}
-
-function UsersTab() {
-  const can = useAuth((s) => s.can)
-  const { data } = useApi<{ username: string; role: string; display: string; active: boolean }[]>(can('users') ? '/admin/users' : null)
-  return (
-    <div className="grid h-full grid-cols-2 gap-4">
-      <div>
-        <div className="mb-1 text-[12px] font-semibold">Users</div>
-        {!can('users') ? (
-          <div className="text-xs text-slate-500">User management requires the admin role.</div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data ?? []).map((u) => (
-                <TableRow key={u.username}>
-                  <TableCell className="font-mono text-[11px]">{u.username}</TableCell>
-                  <TableCell className="text-xs">{u.display}</TableCell>
-                  <TableCell className="text-[11px]">{u.role}</TableCell>
-                  <TableCell>{u.active ? <Badge variant="success">active</Badge> : <Badge variant="secondary">disabled</Badge>}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-      <div>
-        <div className="mb-1 text-[12px] font-semibold">Role-based access</div>
-        <div className="space-y-1.5">
-          {Object.entries(ROLE_PERMS).map(([r, d]) => (
-            <div key={r} className="rounded-lg border px-3 py-1.5">
-              <div className="text-xs font-semibold">{r}</div>
-              <div className="text-[11px] text-slate-500">{d}</div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )

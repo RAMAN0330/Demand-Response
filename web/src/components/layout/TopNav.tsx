@@ -16,6 +16,8 @@ import {
   Receipt,
   Settings2,
   ShieldAlert,
+  ShieldCheck,
+  UserCog,
   Wifi,
   WifiOff,
   Users,
@@ -29,6 +31,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api } from '@/lib/api'
 import { NotificationBell } from './Notifications'
 import { AdrmsBrand } from '@/components/brand/AdrmsMark'
+import { AccountDialog } from '@/components/auth/AccountDialog'
 import { fmtMW } from '@/lib/geo'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
@@ -64,6 +67,7 @@ export function TopNav() {
   const logout = useAuth((s) => s.logout)
   const can = useAuth((s) => s.can)
   const [suspendOpen, setSuspendOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -300,8 +304,11 @@ export function TopNav() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 rounded-full py-0.5 pr-2 pl-0.5 ring-1 ring-slate-200 transition hover:bg-slate-50">
-              <span className="grid size-7 place-items-center rounded-full bg-gradient-to-br from-sky-500 to-sky-700 text-[11px] font-bold text-white uppercase">
+              <span className="relative grid size-7 place-items-center rounded-full bg-gradient-to-br from-sky-500 to-sky-700 text-[11px] font-bold text-white uppercase">
                 {user?.username.slice(0, 2)}
+                {user && !user.mfa_enabled && (
+                  <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-amber-400 ring-2 ring-white" title="Two-factor sign-in is off" />
+                )}
               </span>
               <span className="hidden text-left leading-tight 2xl:block">
                 <span className="block text-[12px] font-medium">{user?.username}</span>
@@ -309,15 +316,31 @@ export function TopNav() {
               </span>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>{user?.display}</DropdownMenuLabel>
-            <div className="px-2 pb-1.5 text-[11px] text-muted-foreground">{user?.permissions.join(' · ')}</div>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel className="leading-tight">
+              <span className="block">{user?.display}</span>
+              <span className="block text-[11px] font-normal text-muted-foreground">
+                {user?.username} · {user?.role_label}
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setAccountOpen(true)}>
+              <UserCog /> Account &amp; security
+              {user && !user.mfa_enabled && <span className="ml-auto rounded bg-amber-100 px-1.5 text-[10px] font-medium text-amber-800">2FA off</span>}
+              {user?.mfa_enabled && <ShieldCheck className="ml-auto text-emerald-600" />}
+            </DropdownMenuItem>
+            {can('users') && (
+              <DropdownMenuItem onClick={() => go('admin')}>
+                <Users /> Manage users
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
               <LogOut /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} />
       </div>
 
       <Dialog open={suspendOpen} onOpenChange={setSuspendOpen}>

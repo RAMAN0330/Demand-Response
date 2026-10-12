@@ -14,6 +14,7 @@ import os
 from typing import Any
 
 from sqlalchemy import JSON, Column, Float, Integer, MetaData, String, Table, Text, select, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 meta = MetaData()
@@ -26,6 +27,40 @@ users = Table(
     Column("display", String(128), nullable=False),
     Column("password_hash", String(256), nullable=False),
     Column("active", Integer, nullable=False, default=1),
+    # security state (added by migration on existing databases)
+    Column("email", String(256)),
+    Column("created_at", Float),
+    Column("last_login_at", Float),
+    Column("password_changed_at", Float),
+    Column("failed_attempts", Integer, default=0),
+    Column("locked_until", Float),
+    Column("must_change", Integer, default=0),
+    Column("mfa_enabled", Integer, default=0),
+    Column("mfa_secret", String(64)),
+    Column("mfa_last_step", Integer),
+    Column("recovery_codes", Text),  # JSON list of SHA-256 hashes, each usable once
+    Column("demo", Integer, default=0),
+)
+USER_MIGRATIONS = {
+    "email": "VARCHAR(256)", "created_at": "REAL", "last_login_at": "REAL", "password_changed_at": "REAL",
+    "failed_attempts": "INTEGER DEFAULT 0", "locked_until": "REAL", "must_change": "INTEGER DEFAULT 0",
+    "mfa_enabled": "INTEGER DEFAULT 0", "mfa_secret": "VARCHAR(64)", "mfa_last_step": "INTEGER", "recovery_codes": "TEXT", "demo": "INTEGER DEFAULT 0",
+}
+
+sessions = Table(
+    "auth_sessions",
+    meta,
+    Column("id", String(40), primary_key=True),
+    Column("username", String(64), nullable=False, index=True),
+    Column("created_at", Float, nullable=False),
+    Column("last_seen", Float, nullable=False),
+    Column("expires_at", Float, nullable=False),
+    Column("refresh_hash", String(64), nullable=False),
+    Column("remember", Integer, default=0),
+    Column("ip", String(64)),
+    Column("user_agent", String(256)),
+    Column("revoked_at", Float),
+    Column("revoked_reason", String(128)),
 )
 
 audit = Table(
@@ -100,6 +135,11 @@ class Store:
     async def init(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(meta.create_all)
+            # in-place migration: add security columns to a users table created by an older version
+            have = await conn.run_sync(lambda c: {col["name"] for col in sa_inspect(c).get_columns("users")})
+            for name, ddl in USER_MIGRATIONS.items():
+                if name not in have:
+                    await conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
             if self.dialect == "postgresql":  # optional TimescaleDB hypertable for telemetry
                 try:
                     await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb"))
@@ -125,19 +165,55 @@ class Store:
 
     async def list_users(self) -> list[dict]:
         async with self.engine.connect() as conn:
-            rows = (await conn.execute(select(users.c.username, users.c.role, users.c.display, users.c.active))).mappings().all()
+            rows = (await conn.execute(select(users))).mappings().all()
             return [dict(r) for r in rows]
 
-    async def upsert_user(self, username: str, role: str, display: str, password_hash: str | None) -> None:
+    async def upsert_user(self, username: str, role: str, display: str, password_hash: str | None, **extra: Any) -> None:
         async with self.engine.begin() as conn:
             existing = (await conn.execute(select(users.c.password_hash).where(users.c.username == username))).first()
             if existing:
-                vals: dict[str, Any] = {"role": role, "display": display}
+                vals: dict[str, Any] = {"role": role, "display": display, **extra}
                 if password_hash:
                     vals["password_hash"] = password_hash
                 await conn.execute(users.update().where(users.c.username == username).values(**vals))
             else:
-                await conn.execute(users.insert().values(username=username, role=role, display=display, password_hash=password_hash or "!", active=1))
+                await conn.execute(users.insert().values(**{"username": username, "role": role, "display": display, "password_hash": password_hash or "!", "active": 1, "failed_attempts": 0, "must_change": 0, "mfa_enabled": 0, "demo": 0, **extra}))
+
+    async def update_user(self, username: str, **vals: Any) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(users.update().where(users.c.username == username).values(**vals))
+
+    # ------------------------------------------------------------------ sessions
+    async def create_session(self, row: dict) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(sessions.insert().values(**row))
+
+    async def get_session(self, sid: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            r = (await conn.execute(select(sessions).where(sessions.c.id == sid))).mappings().first()
+            return dict(r) if r else None
+
+    async def update_session(self, sid: str, **vals: Any) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(sessions.update().where(sessions.c.id == sid).values(**vals))
+
+    async def list_sessions(self, username: str | None = None, active_only: bool = True, now: float = 0.0) -> list[dict]:
+        q = select(sessions)
+        if username:
+            q = q.where(sessions.c.username == username)
+        if active_only:
+            q = q.where(sessions.c.revoked_at.is_(None)).where(sessions.c.expires_at > now)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(q.order_by(sessions.c.last_seen.desc()))).mappings().all()
+            return [dict(r) for r in rows]
+
+    async def revoke_sessions(self, username: str, now: float, reason: str, except_sid: str | None = None) -> list[str]:
+        async with self.engine.begin() as conn:
+            q = select(sessions.c.id).where(sessions.c.username == username).where(sessions.c.revoked_at.is_(None))
+            ids = [r[0] for r in (await conn.execute(q)).all() if r[0] != except_sid]
+            if ids:
+                await conn.execute(sessions.update().where(sessions.c.id.in_(ids)).values(revoked_at=now, revoked_reason=reason))
+            return ids
 
     # ------------------------------------------------------------------ write-behind
     async def flush(self, audit_rows: list[dict], docs: list[tuple[str, str, float, str, dict]], telem: list[tuple[float, str, float, float, float]]) -> None:

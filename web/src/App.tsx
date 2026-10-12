@@ -16,7 +16,7 @@ import { ReportsPage } from '@/pages/ReportsPage'
 import { SheddingPage } from '@/pages/SheddingPage'
 import { ResourcesPage } from '@/pages/ResourcesPage'
 import { WhatIfPage } from '@/pages/WhatIfPage'
-import { useAuth } from '@/store/useAuth'
+import { startTokenKeeper, useAuth } from '@/store/useAuth'
 import { useLive } from '@/store/useLive'
 import { useUI } from '@/store/useUI'
 
@@ -32,14 +32,15 @@ function useHash() {
 }
 
 export default function App() {
-  const token = useAuth((s) => s.token)
+  const signedIn = useAuth((s) => !!s.token)
   const notice = useAuth((s) => s.notice)
   const hash = useHash()
-  const view = token ? <Shell token={token} /> : hash === '#/login' || notice ? <LoginPage /> : <LandingPage />
+  useEffect(() => (signedIn ? startTokenKeeper() : undefined), [signedIn])
+  const view = signedIn ? <Shell /> : hash === '#/login' || notice ? <LoginPage /> : <LandingPage />
   return <TooltipProvider>{view}</TooltipProvider>
 }
 
-function Shell({ token }: { token: string }) {
+function Shell() {
   const page = useUI((s) => s.page)
   const ready = useLive((s) => s.topologyReady)
   const loadTopology = useLive((s) => s.loadTopology)
@@ -48,9 +49,9 @@ function Shell({ token }: { token: string }) {
 
   useEffect(() => {
     loadTopology().catch(() => undefined)
-    connect(token)
+    connect()
     return () => disconnect()
-  }, [token, loadTopology, connect, disconnect])
+  }, [loadTopology, connect, disconnect])
 
   if (!ready)
     return (

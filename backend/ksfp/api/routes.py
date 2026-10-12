@@ -25,7 +25,8 @@ from ..grid.state import assess
 from ..grid.topology import topology
 from ..ingest.channels import channels
 from ..ingest.field import Disturbance
-from ..security.auth import Principal, decode_token, issue_token, verify_password
+from ..security.auth import DEMO_USERS, POLICY, ROLE_LABEL, ROLES, Principal, decode_token
+from ..security.service import AuthError
 
 router = APIRouter(prefix="/api/v1")
 
@@ -34,14 +35,22 @@ def rt(request: Request):
     return request.app.state.runtime
 
 
-def principal(request: Request) -> Principal:
+def _bearer(request: Request) -> str:
     h = request.headers.get("authorization", "")
     if not h.lower().startswith("bearer "):
         raise HTTPException(401, "Missing bearer token")
+    return h[7:]
+
+
+async def principal(request: Request) -> Principal:
+    r = request.app.state.runtime
     try:
-        return decode_token(h[7:], request.app.state.runtime.settings.jwt_secret)
+        p = decode_token(_bearer(request), r.settings.jwt_secret)
     except pyjwt.PyJWTError as e:
         raise HTTPException(401, f"Invalid token: {e}") from e
+    if not await r.auth.session_active(p.sid):
+        raise HTTPException(401, "Session ended. Sign in again.")
+    return p
 
 
 def need(perm: str):
@@ -53,27 +62,146 @@ def need(perm: str):
     return dep
 
 
+def _client(request: Request) -> tuple[str, str]:
+    return (request.client.host if request.client else "unknown"), request.headers.get("user-agent", "")
+
+
+async def _auth(call):
+    try:
+        return await call
+    except AuthError as e:
+        raise HTTPException(e.status, {"message": e.detail, **e.extra} if e.extra else e.detail) from e
+
+
 # ---------------------------------------------------------------- auth
 class LoginIn(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+    remember: bool = False
+
+
+class MfaIn(BaseModel):
+    challenge: str
+    code: str = Field(max_length=32)
+
+
+class ChallengePasswordIn(BaseModel):
+    challenge: str
+    new_password: str = Field(max_length=256)
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str = Field(max_length=256)
+
+
+class PasswordIn(BaseModel):
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(max_length=256)
+
+
+class ConfirmIn(BaseModel):
+    password: str = Field(max_length=256)
+    code: str = Field("", max_length=32)
+
+
+class CodeIn(BaseModel):
+    code: str = Field(max_length=32)
+
+
+@router.get("/auth/config")
+async def auth_config(request: Request):
+    """Public: what the sign-in page may show."""
+    r = rt(request)
+    return {
+        "demo": r.settings.demo_users,
+        "demo_users": [{"username": u, "role": role, "label": ROLE_LABEL[role]} for u, role, _ in DEMO_USERS] if r.settings.demo_users else [],
+        "policy": POLICY["text"],
+        "min_length": POLICY["min_length"],
+        "lockout": {"attempts": r.settings.lockout_attempts, "minutes": r.settings.lockout_minutes},
+        "session_hours": r.settings.session_hours,
+        "remember_days": r.settings.remember_days,
+    }
 
 
 @router.post("/auth/login")
 async def login(body: LoginIn, request: Request):
+    ip, ua = _client(request)
+    return await _auth(rt(request).auth.login(body.username, body.password, body.remember, ip, ua))
+
+
+@router.post("/auth/mfa")
+async def login_mfa(body: MfaIn, request: Request):
+    ip, ua = _client(request)
+    return await _auth(rt(request).auth.verify_mfa(body.challenge, body.code, ip, ua))
+
+
+@router.post("/auth/password/required")
+async def login_password_change(body: ChallengePasswordIn, request: Request):
+    ip, ua = _client(request)
+    return await _auth(rt(request).auth.complete_password_change(body.challenge, body.new_password, ip, ua))
+
+
+@router.post("/auth/refresh")
+async def refresh(body: RefreshIn, request: Request):
+    return await _auth(rt(request).auth.refresh(body.refresh_token))
+
+
+@router.post("/auth/logout")
+async def logout(request: Request, p: Principal = Depends(principal)):
     r = rt(request)
-    u = await r.store.get_user(body.username)
-    if not u or not u["active"] or not verify_password(body.password, u["password_hash"]):
-        r.audit.append(r.clock.now(), "SECURITY", body.username, "Failed login")
-        raise HTTPException(401, "Invalid credentials")
-    p = Principal(u["username"], u["role"], u["display"])
-    r.audit.append(r.clock.now(), "SECURITY", p.username, f"Login ({p.role})")
-    return {"token": issue_token(p, r.settings.jwt_secret, r.settings.jwt_ttl_min), "user": p.to_dict()}
+    if p.sid:
+        await _auth(r.auth.revoke(p.username, "signed out", sid=p.sid))
+    r.audit.append(r.clock.now(), "SECURITY", p.username, "Signed out", p.sid)
+    return {"ok": True}
 
 
 @router.get("/auth/me")
-async def me(p: Principal = Depends(principal)):
-    return p.to_dict()
+async def me(request: Request, p: Principal = Depends(principal)):
+    u = await rt(request).store.get_user(p.username)
+    return rt(request).auth.user_view(u) if u else p.to_dict()
+
+
+@router.post("/auth/password")
+async def change_password(body: PasswordIn, request: Request, p: Principal = Depends(principal)):
+    await _auth(rt(request).auth.change_password(p, body.current_password, body.new_password))
+    return {"ok": True}
+
+
+@router.post("/auth/mfa/setup")
+async def mfa_setup(body: ConfirmIn, request: Request, p: Principal = Depends(principal)):
+    return await _auth(rt(request).auth.mfa_setup(p, body.password))
+
+
+@router.post("/auth/mfa/enable")
+async def mfa_enable(body: CodeIn, request: Request, p: Principal = Depends(principal)):
+    return await _auth(rt(request).auth.mfa_enable(p, body.code))
+
+
+@router.post("/auth/mfa/disable")
+async def mfa_disable(body: ConfirmIn, request: Request, p: Principal = Depends(principal)):
+    await _auth(rt(request).auth.mfa_disable(p, body.password, body.code))
+    return {"ok": True}
+
+
+@router.get("/auth/sessions")
+async def my_sessions(request: Request, p: Principal = Depends(principal)):
+    return await rt(request).auth.sessions(p.username, p.sid)
+
+
+@router.delete("/auth/sessions/{sid}")
+async def end_session(sid: str, request: Request, p: Principal = Depends(principal)):
+    r = rt(request)
+    await _auth(r.auth.revoke(p.username, "ended by user", sid=sid))
+    r.audit.append(r.clock.now(), "SECURITY", p.username, "Session ended from account settings", sid)
+    return {"ok": True}
+
+
+@router.post("/auth/sessions/revoke-others")
+async def end_other_sessions(request: Request, p: Principal = Depends(principal)):
+    r = rt(request)
+    n = await r.auth.revoke(p.username, "signed out elsewhere", except_sid=p.sid)
+    r.audit.append(r.clock.now(), "SECURITY", p.username, f"Signed out of {n} other session(s)")
+    return {"ended": n}
 
 
 # ---------------------------------------------------------------- static model
@@ -668,9 +796,61 @@ async def put_dsm(body: dict, request: Request, p: Principal = Depends(need("con
     return {"version": v}
 
 
+class NewUserIn(BaseModel):
+    username: str = Field(max_length=32)
+    display: str = Field("", max_length=80)
+    role: str
+    email: str | None = Field(None, max_length=120)
+
+
+class UserPatchIn(BaseModel):
+    role: str | None = None
+    display: str | None = Field(None, max_length=80)
+    email: str | None = Field(None, max_length=120)
+    active: bool | None = None
+
+
 @router.get("/admin/users")
 async def users(request: Request, p: Principal = Depends(need("users"))):
-    return await rt(request).store.list_users()
+    return await rt(request).auth.list_users()
+
+
+@router.get("/admin/roles")
+async def roles(p: Principal = Depends(need("users"))):
+    return [{"role": k, "label": ROLE_LABEL[k], "permissions": sorted(v)} for k, v in ROLES.items()]
+
+
+@router.post("/admin/users")
+async def create_user(body: NewUserIn, request: Request, p: Principal = Depends(need("users"))):
+    return await _auth(rt(request).auth.create_user(p, body.username, body.display, body.role, body.email))
+
+
+@router.patch("/admin/users/{username}")
+async def update_user(username: str, body: UserPatchIn, request: Request, p: Principal = Depends(need("users"))):
+    await _auth(rt(request).auth.update_user(p, username, body.role, body.display, body.email, body.active))
+    return {"ok": True}
+
+
+@router.post("/admin/users/{username}/reset-password")
+async def reset_password(username: str, request: Request, p: Principal = Depends(need("users"))):
+    return await _auth(rt(request).auth.reset_password(p, username))
+
+
+@router.post("/admin/users/{username}/unlock")
+async def unlock_user(username: str, request: Request, p: Principal = Depends(need("users"))):
+    await _auth(rt(request).auth.unlock(p, username))
+    return {"ok": True}
+
+
+@router.post("/admin/users/{username}/reset-mfa")
+async def reset_mfa(username: str, request: Request, p: Principal = Depends(need("users"))):
+    await _auth(rt(request).auth.reset_mfa(p, username))
+    return {"ok": True}
+
+
+@router.post("/admin/users/{username}/revoke-sessions")
+async def revoke_user_sessions(username: str, request: Request, p: Principal = Depends(need("users"))):
+    return {"ended": await _auth(rt(request).auth.admin_revoke(p, username))}
 
 
 # ---------------------------------------------------------------- ops endpoints (unauthenticated for probes)
@@ -704,6 +884,8 @@ async def ws(websocket: WebSocket, token: str = ""):
     r = websocket.app.state.runtime
     try:
         p = decode_token(token, r.settings.jwt_secret)
+        if not await r.auth.session_active(p.sid):
+            raise PermissionError("session ended")
     except Exception:
         await websocket.close(code=4401)
         return
@@ -721,6 +903,9 @@ async def ws(websocket: WebSocket, token: str = ""):
                 if time.monotonic() - last_state < 0.9:  # ≤1 Hz per client
                     continue
                 last_state = time.monotonic()
+                if not await r.auth.session_active(p.sid):  # signed out, revoked or expired: stop streaming
+                    await websocket.close(code=4401)
+                    return
                 await websocket.send_json(payload)
             else:
                 await websocket.send_json({"type": "event", "topic": topic, "data": payload})

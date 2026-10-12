@@ -22,7 +22,12 @@ class Settings:
     # command-authentication key shared with field gateways (separate from the session secret); set in production
     command_key: str = field(default_factory=lambda: _env("KSFP_COMMAND_KEY", "") or secrets.token_hex(32))
     command_key_id: str = field(default_factory=lambda: _env("KSFP_COMMAND_KEY_ID", "k1"))
-    jwt_ttl_min: int = field(default_factory=lambda: int(_env("KSFP_JWT_TTL_MIN", "480")))
+    # sign-in: short access tokens bound to a server-side session; refresh rotates within the session lifetime
+    access_ttl_min: float = field(default_factory=lambda: float(_env("KSFP_ACCESS_TTL_MIN", "15")))
+    session_hours: float = field(default_factory=lambda: float(_env("KSFP_SESSION_HOURS", "12")))
+    remember_days: float = field(default_factory=lambda: float(_env("KSFP_REMEMBER_DAYS", "7")))
+    lockout_attempts: int = field(default_factory=lambda: int(_env("KSFP_LOCKOUT_ATTEMPTS", "5")))
+    lockout_minutes: float = field(default_factory=lambda: float(_env("KSFP_LOCKOUT_MINUTES", "15")))
     # data source: "simulated" (field simulator) — real adapters (iec104, iccp) plug in at ingest.sources
     source: str = field(default_factory=lambda: _env("KSFP_SOURCE", "simulated"))
     time_scale: float = field(default_factory=lambda: float(_env("KSFP_TIME_SCALE", "20")))

@@ -38,6 +38,7 @@ from .ingest.kptcl import KptclSource
 from .ingest.quality import QualityLayer
 from .obs.metrics import Metrics
 from .security.auth import DEMO_USERS, hash_password
+from .security.service import AuthService
 from .store.db import Store
 
 log = logging.getLogger("ksfp.runtime")
@@ -61,6 +62,16 @@ class Runtime:
         self.policy = AutonomyPolicy()
         self.dsm_cfg = dict(DEFAULT_DSM)
         self.audit = AuditLog()
+        self.auth = AuthService(
+            self.store,
+            settings.jwt_secret,
+            lambda kind, actor, msg, ref=None: self.audit.append(self.clock.now(), kind, actor, msg, ref),
+            access_min=settings.access_ttl_min,
+            session_hours=settings.session_hours,
+            remember_days=settings.remember_days,
+            lock_threshold=settings.lockout_attempts,
+            lock_minutes=settings.lockout_minutes,
+        )
         self.metrics = Metrics()
         self.reliability = {a["id"]: a["reliability"] for a in topology().assets}
         self.commands = CommandManager(settings.command_key, settings.command_key_id)
@@ -104,7 +115,7 @@ class Runtime:
             if self.settings.demo_users:
                 for u, role, display in DEMO_USERS:
                     if not await self.store.get_user(u):
-                        await self.store.upsert_user(u, role, display, hash_password(f"{u}123"))
+                        await self.store.upsert_user(u, role, display, hash_password(f"{u}123"), demo=1, created_at=time.time(), password_changed_at=time.time())
             cfg = await self.store.get_config("autonomy")
             if cfg:
                 v = cfg["value"]

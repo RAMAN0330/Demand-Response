@@ -35,7 +35,7 @@ cd web && npm install && npm run dev               # http://localhost:5173 (prox
 npm run build                                      # type-check + production bundle
 ```
 
-Demo accounts (password = username + `123`): `operator`, `sic` (shift-in-charge), `analyst`, `engineer`, `admin`.
+Demo accounts (password = username + `123`): `operator`, `sic` (shift-in-charge), `analyst`, `engineer`, `admin`. They are seeded only when `KSFP_DEMO_USERS=true`, and the sign-in page shows them only then. Turn this off in production and create real users under Administration → Users & roles.
 
 ### Configuration (environment)
 
@@ -48,7 +48,10 @@ Demo accounts (password = username + `123`): `operator`, `sic` (shift-in-charge)
 | `KSFP_KPTCL_POLL_S` | `300` | SLDC website poll interval |
 | `KSFP_TIME_SCALE` | `20` | Simulated-clock speed (1 in hybrid mode) |
 | `KSFP_AUTO_DISTURBANCES` | `true` | Random field events for drills |
-| `KSFP_DEMO_USERS` | `true` | Seed the demo accounts |
+| `KSFP_DEMO_USERS` | `true` | Seed the demo accounts and show them on the sign-in page |
+| `KSFP_ACCESS_TTL_MIN` | `15` | Access-token lifetime; renewed silently by the refresh token |
+| `KSFP_SESSION_HOURS` / `KSFP_REMEMBER_DAYS` | `12` / `7` | Session lifetime, without and with "Keep me signed in" |
+| `KSFP_LOCKOUT_ATTEMPTS` / `KSFP_LOCKOUT_MINUTES` | `5` / `15` | Failed sign-ins (or codes) before an account locks, and for how long |
 
 Hybrid mode needs outbound HTTPS to `kptclsldc.in` from the API host. **It is advisory only:** website values are up to one poll interval old (ages are measured from fetch time), so this source vetoes automatic control until authorised SCADA/EMS telemetry is connected. If a page can't be fetched, its channels stay simulated, and Administration → Data sources shows per-page health and any unmapped rows.
 
@@ -81,7 +84,16 @@ The status cluster (severity, autonomy level with kill switch, data confidence, 
 - **Decide:** a network-constrained multi-block LP (HiGHS) re-solved every block (MPC), dispatching in priority order: BESS → industrial flexibility (inside accepted offers) → other flexibility → RTM, with load rotation only for the measured residual. Before any command, a Digital-Twin gate checks heartbeat, SoC, flows, voltage, reserve and rebound, and excludes or derates anything that fails.
 - **Autonomy policy:** L0 Monitor, L1 Advisory, L2 Supervised (automatic only inside an envelope), L3 Autonomous. It degrades automatically on low data confidence or an unhealthy loop. Includes a kill switch and dual authorisation above a MW threshold.
 - **Act:** setpoint commands authenticated with HMAC-SHA-256 (verified independently at the gateway: key id, freshness, replay), ack timeouts, a dead-band and no blind resend. Acknowledgement, first response, full output and delivered energy are tracked separately. Measurement & verification (M&V) runs per tick, with performance-factor settlement and reliability learning.
-- **Trust:** JWT + RBAC (operator / shift-in-charge / analyst / engineer / admin), and a SHA-256 hash-chained audit log with a verify endpoint. Probes and Prometheus metrics are exposed at `/health`, `/ready` and `/metrics`.
+- **Trust:** RBAC (operator / shift-in-charge / analyst / engineer / admin) and a SHA-256 hash-chained audit log with a verify endpoint.
+- **Sign-in and users:**
+  - Passwords use PBKDF2-SHA256 and a policy: 10+ characters, 3 character types, not the username, not a common password.
+  - Sessions are server-side. The 15-minute access token carries the session id. The refresh token is stored hashed and rotated on every use; presenting an already-rotated token ends the session.
+  - Sign-out, disabling an account, a role change or a password reset take effect immediately, including on the live stream.
+  - Five failures lock an account for 15 minutes. Unknown usernames lock the same way, and errors are uniform, so the responses don't reveal which accounts exist. Each address is also throttled.
+  - Two-factor sign-in uses TOTP (any authenticator app, with a QR code) and one-time recovery codes.
+  - Users manage their password, two-factor and active sessions under Account & security.
+  - Administrators create users (a one-time password is shown once and must be changed at first sign-in), and can change roles, disable, reset passwords, unlock, reset two-factor and end sessions. The last administrator can't be removed.
+  - Every security event is audited. Probes and Prometheus metrics are exposed at `/health`, `/ready` and `/metrics`.
 
 See `docs/HOW-IT-WORKS.md` for how the loop works, the strategies it weighs and every calculation (with a worked example), and `docs/ARCHITECTURE.md` for the full design, scaling path and failure modes.
 

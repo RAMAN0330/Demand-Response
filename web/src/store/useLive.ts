@@ -1,5 +1,6 @@
 // Live operational state streamed from the backend over WebSocket (state frames ≤1 Hz + events).
 import { create } from 'zustand'
+import { useAuth } from './useAuth'
 import { setTopology } from '@/data/topology'
 import type { Alarm, Frame, Topology } from '@/data/types'
 import { api } from '@/lib/api'
@@ -37,7 +38,7 @@ interface LiveState {
   lastMessage: number
   rev: number // bumps on any decision/alarm/command event → views refetch details
   loadTopology: () => Promise<void>
-  connect: (token: string) => void
+  connect: () => void
   disconnect: () => void
 }
 
@@ -68,9 +69,11 @@ export const useLive = create<LiveState>((set, get) => ({
     set({ topologyReady: true })
   },
 
-  connect: (token) => {
+  connect: () => {
     wanted = true
     if (ws) return
+    const token = useAuth.getState().token
+    if (!token) return
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     set({ conn: retry ? 'reconnecting' : 'connecting' })
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`)
@@ -122,7 +125,12 @@ export const useLive = create<LiveState>((set, get) => ({
     ws.onclose = (ev) => {
       ws = null
       if (ev.code === 4401) {
-        set({ conn: 'offline' })
+        // access token expired (or the session ended): refresh and reconnect; a failed refresh signs out
+        set({ conn: 'reconnecting' })
+        void useAuth
+          .getState()
+          .refresh()
+          .then((ok) => (ok && wanted ? get().connect() : set({ conn: 'offline' })))
         return
       }
       if (!wanted) {
@@ -131,7 +139,7 @@ export const useLive = create<LiveState>((set, get) => ({
       }
       retry = Math.min(retry + 1, 6)
       set({ conn: 'reconnecting' })
-      timer = setTimeout(() => get().connect(token), Math.min(15000, 500 * 2 ** retry))
+      timer = setTimeout(() => get().connect(), Math.min(15000, 500 * 2 ** retry))
     }
   },
 
