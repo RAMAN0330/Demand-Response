@@ -1,7 +1,12 @@
-"""Flexibility engine: what each resource can *really* deliver right now.
+"""Flexibility engine: what each resource can *really* deliver right now, and what it costs per delivered kWh.
 
-  F_up     = min(baseline − P_min, contracted state share (+ emergency share), technical / SoC limit)
-  expected = F × reliability (learned)
+  F_up      = min(baseline − P_min, contracted state share (+ emergency share), technical / SoC limit)
+  expected  = F × reliability (learned)           ← reliability scales the MW we can count on, nothing else
+  pay rate  = ₹ the platform pays per *delivered* kWh (the same rate settlement uses)
+  effective = pay rate + rebound cost             ← ₹ per delivered kWh; used for ranking, the economic
+                                                     filter (vs DSM ₹/kWh), the LP objective and the display
+Payment is only for delivered energy, so unreliability is not a price mark-up: it shrinks expected MW and the
+optimiser buys more capacity to cover the requirement in expectation.
 SRAS/TRAS portions are locked (ANCILLARY_MODE) and never dispatched here.
 """
 
@@ -27,9 +32,10 @@ class FlexEval:
     earliest_block: int
     max_blocks: int
     bid_rs: float
-    opportunity_rs: float
-    rebound_rs: float
-    effective_cost: float  # ₹ per expected kWh
+    opportunity_rs: float  # informational: the participant's own cost (priced into the bid for demand-side)
+    pay_rs: float  # ₹ paid per delivered kWh (negative = credit, e.g. generation backing down)
+    rebound_rs: float  # ₹ per delivered kWh for energy that returns after release (bought off-peak)
+    effective_cost: float  # pay_rs + rebound_rs, ₹ per delivered kWh
     energy_mwh: float | None  # BESS usable energy (UP)
     current_mw: float  # currently delivered (from telemetry)
     eligible: bool
@@ -57,6 +63,8 @@ class FlexEval:
             "emergency_mw": self.emergency_mw,
             "response_min": a["responseMin"],
             "effective_cost": self.effective_cost,
+            "pay_rs": self.pay_rs,
+            "rebound_rs": self.rebound_rs,
             "current_mw": self.current_mw,
             "eligible": self.eligible,
             "exclusions": self.exclusions,
@@ -79,6 +87,7 @@ def evaluate(
     notes: list[str] = []
     excl: list[str] = []
     bid, opp = asset["bidRs"], asset["opportunityRs"]
+    pay = bid  # demand-side: the bid is the price paid; the consumer's opportunity cost is already in it
     energy = None
     current = float(live.get("mw", 0.0))
     if asset["type"] == "bess" and asset.get("bess"):
@@ -91,13 +100,17 @@ def evaluate(
             technical = max(0.0, min(power, e_mw + 0.0))
             if e_mw < power:
                 notes.append(f"SoC-limited: {soc * 100:.0f}% → {e_mw:.0f} MW for {duration_h:g} h")
-            opp = s.prices.off_peak / (b["etaC"] * b["etaD"])
+            opp = s.prices.off_peak / (b["etaC"] * b["etaD"])  # recharge energy per kWh discharged
+            pay = bid + opp
         else:
             room = (b["socMax"] - soc) * b["energyMWh"] / b["etaC"] / duration_h
             technical = max(0.0, min(power, room))
             bid, opp = b["degRs"], 0.0
+            pay = bid  # absorbing surplus: battery wear only
     elif asset["type"] == "generation":
         technical = asset["maxLoadMW"] - asset["baselineMW"] if up else asset["baselineMW"] - asset["minLoadMW"]
+        # UP: variable cost + wear; DOWN: backing down saves ~60 % of variable cost (part-load heat rate) less wear
+        pay = bid + opp if up else -0.6 * bid + opp
         if not up:
             bid = -asset["bidRs"] * 0.6
     else:
@@ -114,9 +127,9 @@ def evaluate(
         excl.append("Marked out of service by operator/engineer")
     if available < 0.5:
         excl.append("No headroom in this direction")
-    rebound = asset["reboundFrac"] * s.prices.off_peak * 0.5
+    rebound = asset["reboundFrac"] * s.prices.off_peak  # each delivered kWh brings back reboundFrac kWh later
     rel = max(0.05, min(0.995, reliability))
-    eff = (bid + opp + rebound) / rel
+    eff = pay + rebound
     resp = asset["responseMin"]
     earliest = 0 if (resp <= 15 or current > 0.5) else int(-(-resp // 15)) - 1
     max_blocks = max(1, int(asset["maxDurationMin"] // 15) - active_blocks)
@@ -135,6 +148,7 @@ def evaluate(
         max_blocks=max_blocks,
         bid_rs=bid,
         opportunity_rs=opp,
+        pay_rs=pay,
         rebound_rs=rebound,
         effective_cost=eff,
         energy_mwh=energy,

@@ -70,6 +70,7 @@ class Decision:
     closed_reason: str = ""
     final_state: str = "COMPLETED"
     meter: Meter = field(default_factory=Meter)
+    rates: dict[str, float] = field(default_factory=dict)  # pay rate locked per asset at dispatch (₹/kWh)
 
     @property
     def open(self) -> bool:
@@ -267,6 +268,7 @@ class DecisionEngine:
                 "expected_mw": al.expected_by_block[0],
                 "reliability": al.reliability,
                 "effective_cost": al.effective_cost,
+                "rate_rs": al.rate_rs,
                 "cost_rs": al.cost_rs,
                 "rank": al.rank,
                 "caps": al.caps,
@@ -274,6 +276,8 @@ class DecisionEngine:
             }
             for al in plan.allocations
         ]
+        for x in allocs:
+            d.rates[x["id"]] = x["rate_rs"]
         policy = self.policy.classify([x for x in allocs if x["mw"] > 0.5], a.severity, a.state.confidence, twin.ok, loop_healthy)
         # approvals carry over across MPC revisions while within the approved envelope
         approved_ids = set()
@@ -516,7 +520,7 @@ class DecisionEngine:
         d.state = d.final_state if state == "COMPLETED" else state
         d.closed_at = now
         d.closed_reason = reason
-        d.settlement = d.meter.settle(self.reliability)
+        d.settlement = d.meter.settle(self.reliability, d.rates)
         for r in d.settlement["rows"]:
             if r["asset_id"] != "RTM" and r["expected_mwh"] > 0.05:
                 self.reliability[r["asset_id"]] = r["reliability_after"]

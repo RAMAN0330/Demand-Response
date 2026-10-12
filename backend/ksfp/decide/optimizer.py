@@ -6,7 +6,8 @@ Decision variables, for resources i and blocks b:
   v[l,b] ≥ 0   overload slack on line l (penalised at μ ≫ λ; keeps the LP feasible when an
                overload pre-exists, and makes the solver *prefer* relieving resources)
 
-min  Σ (bid+opp+rebound)_i · R_i · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
+min  Σ (pay+rebound)_i · R_i · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
+     (₹ per delivered kWh × expected delivered energy — the same rate settlement pays)
 s.t. Σ_i R_i x[i,b] + s[b] ≥ req[b]                         (balance, expected MW)
      ±(f0_l + Σ_i PTDF[l,bus_i]·dir·x[i,b]) − v[l,b] ≤ limit_l   (thermal limits, N-0)
      x[i,b] ≤ avail_i ;  x[i,b] = 0 for b < earliest_i       (capacity, response time)
@@ -57,7 +58,8 @@ class Allocation:
     expected_by_block: list[float]
     reliability: float
     effective_cost: float
-    cost_rs: float
+    cost_rs: float  # payment for expected delivery (pay rate); rebound is costed separately in the plan
+    rate_rs: float = 0.0  # pay rate, ₹/kWh — settlement pays this for metered delivery
     rank: int = 0
     caps: list[str] = field(default_factory=list)
 
@@ -145,7 +147,8 @@ def optimize(
                 "type": e.asset["type"],
                 "bus": e.asset["bus"],
                 "R": e.reliability,
-                "unit_cost": e.bid_rs + e.opportunity_rs + e.rebound_rs,
+                "unit_cost": e.effective_cost,  # pay + rebound, ₹ per delivered kWh
+                "pay": e.pay_rs,
                 "eff": e.effective_cost,
                 "avail": avail,
                 "earliest": e.earliest_block,
@@ -167,6 +170,7 @@ def optimize(
                 "bus": None,
                 "R": 1.0,
                 "unit_cost": s.prices.rtm_acp + 0.05,
+                "pay": s.prices.rtm_acp + 0.05,
                 "eff": s.prices.rtm_acp + 0.05,
                 "avail": 5000.0,
                 "earliest": RTM_LEAD_BLOCKS,
@@ -324,8 +328,9 @@ def optimize(
                 expected_by_block=exp,
                 reliability=c["R"],
                 effective_cost=c["eff"],
-                cost_rs=mwh * 1000 * c["unit_cost"],
+                cost_rs=mwh * 1000 * c["pay"],
                 caps=caps,
+                rate_rs=c["pay"],
             )
         )
     allocations.sort(key=lambda al: al.effective_cost)

@@ -290,3 +290,33 @@ def test_gateway_refuses_commands_signed_with_the_wrong_key():
         f.step(now + i * 10)
         cm.tick(now + i * 10, f, {})
     assert cmd.state == "FAILED"  # never acked: the asset did not act on it
+
+
+# ------------------------------------------------------------------ one cost model end to end
+def test_cost_model_is_coherent_from_ranking_to_settlement():
+    from ksfp.act.settlement import Meter
+    from ksfp.decide.optimizer import BLOCK_H
+
+    _, _, s = run_field([Disturbance("re_drop", {"mw": 900}, 0, 3600, 30)], 300)
+    a = assess(s)
+    t = topology()
+    evals = [evaluate(x, a, 4, x["reliability"]) for x in t.assets]
+    for e in evals:
+        assert abs(e.effective_cost - (e.pay_rs + e.rebound_rs)) < 1e-9  # no reliability mark-up
+    plan = optimize(a, evals, a.requirement_mw, 4, "OPTIMAL")
+    by_id = {e.id: e for e in evals}
+    rebound = 0.0
+    for al in plan.allocations:
+        if al.type == "rtm":
+            continue
+        e = by_id[al.asset_id]
+        assert al.rate_rs == e.pay_rs and al.effective_cost == e.effective_cost
+        # plan payment = expected delivered energy × the pay rate (rebound is not inside it)
+        assert abs(al.cost_rs - sum(al.expected_by_block) * BLOCK_H * 1000 * e.pay_rs) < 1.0
+        rebound += t.asset(al.asset_id)["reboundFrac"] * sum(al.expected_by_block) * BLOCK_H * 1000 * a.state.prices.off_peak
+    assert abs(plan.costs["rebound_rs"] - rebound) < 1.0  # costed once, separately
+    # settlement pays the same rate for metered delivery
+    al = next(x for x in plan.allocations if x.type != "rtm")
+    m = Meter(delivered_mwh={al.asset_id: 2.0}, expected_mwh={al.asset_id: 2.0})
+    row = m.settle({}, {al.asset_id: al.rate_rs})["rows"][0]
+    assert row["rate_rs"] == al.rate_rs and abs(row["payment_rs"] - 2.0 * 1000 * al.rate_rs) < 1.0

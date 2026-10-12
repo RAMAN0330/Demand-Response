@@ -55,18 +55,20 @@ class Meter:
         self.avoided_dsm_rs += without - actual
         self.seconds += dt
 
-    def settle(self, reliability: dict[str, float], prices_off_peak: float = 3.2, rtm_price: float = 7.2) -> dict:
+    def settle(self, reliability: dict[str, float], rates: dict[str, float] | None = None, prices_off_peak: float = 3.2, rtm_price: float = 7.2) -> dict:
+        """rates: pay rate per asset locked at dispatch (₹/kWh) — the same rate the optimiser costed."""
+        rates = rates or {}
         t = topology()
         rows = []
         for aid, d in self.delivered_mwh.items():
             e = self.expected_mwh.get(aid, 0.0)
             if aid == "RTM":
-                rate, pf, perf, name, typ = rtm_price, 1.0, 1.0, "RTM purchase", "rtm"
+                rate, pf, perf, name, typ = rates.get(aid, rtm_price), 1.0, 1.0, "RTM purchase", "rtm"
             else:
                 spec = t.asset(aid)
                 perf = d / e if e > 1e-6 else 1.0
                 typ = spec["type"]
-                rate = spec["bidRs"] + (spec["opportunityRs"] if typ in ("bess", "generation") else 0.0)
+                rate = rates.get(aid, spec["bidRs"])
                 pf = 1.0 if typ == "generation" else perf_factor(perf)
                 name = spec["name"]
             r_old = reliability.get(aid, 1.0)
