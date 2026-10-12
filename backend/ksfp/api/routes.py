@@ -651,11 +651,16 @@ async def get_dsm(request: Request, p: Principal = Depends(need("view"))):
 @router.put("/admin/config/dsm")
 async def put_dsm(body: dict, request: Request, p: Principal = Depends(need("config"))):
     r = rt(request)
-    for k in ("freq_low", "freq_high", "band_pct", "band_cap_mw", "overdrawal", "underdrawal"):
+    for k in ("version", "source", "effective_from", "freq_low", "freq_high", "overdrawal", "underdrawal"):
         if k not in body:
-            raise HTTPException(422, f"missing '{k}'")
+            raise HTTPException(422, f"missing '{k}' — a rule table must say what it is, where it comes from and when it applies")
+    try:
+        cfg = normalise({**{k: v for k, v in DEFAULT_DSM.items() if k not in ("bands",)}, **body})
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    cfg["approved_by"] = body.get("approved_by") or p.username
     async with r.lock:
-        r.dsm_cfg = {**DEFAULT_DSM, **body}
+        r.dsm_cfg = cfg
         v = await r.store.put_config("dsm_rules", r.dsm_cfg, p.username, r.clock.now())
         r.audit.append(r.clock.now(), "CONFIG", p.username, f"DSM rule table v{v} loaded ({body.get('version', 'unversioned')})")
     return {"version": v}

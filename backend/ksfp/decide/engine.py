@@ -336,6 +336,8 @@ class DecisionEngine:
                     "band_mw": a.dsm.band_mw,
                     "freq_band": a.dsm.freq_band,
                     "mult": [a.dsm.mult_within, a.dsm.mult_beyond],
+                    "slices": [x for x in a.dsm.slices if x["mw"] > 0],
+                    "version": a.dsm.version,
                     "marginal_rate": a.dsm.marginal_rate,
                 },
             },

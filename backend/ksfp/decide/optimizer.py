@@ -123,6 +123,7 @@ def optimize(
     exclude = exclude or set()
     derate = derate or {}
     active_mw = active_mw or {}
+    dsm_cfg = dsm_cfg or a.dsm_cfg  # same rule table as the assessment
     types = STRATEGIES[strategy]["types"]
     sign = 1.0 if a.direction == "UP" else -1.0
     dsm_marginal = dsm_charge(a.deviation_mw, s.schedule_mw, s.frequency, s.prices, dsm_cfg).marginal_rate

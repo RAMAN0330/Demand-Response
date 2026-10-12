@@ -376,3 +376,39 @@ def test_hard_vetoes_force_advisory_whatever_the_confidence_score():
     assert lvl == 1 and reasons == p.vetoes
     assert p.classify(allocs, "ALERT", 1.0, True)["auto"] == []
     assert "vetoes" not in p.to_dict()  # runtime state, never persisted as policy
+
+
+# ------------------------------------------------------------------ DSM tiers (structure; numbers illustrative)
+def test_dsm_tiers_boundaries_and_worked_example():
+    import pytest
+
+    from ksfp.grid.dsm import DEFAULT_DSM, band_edges, normalise
+
+    p = Prices(5.4, 7.2, 8.1)  # NR = 7.20
+    # large state: band edges min(10 %, 100) = 100, min(15 %, 200) = 200, then open
+    assert band_edges(5300, DEFAULT_DSM)[:2] == [100.0, 200.0]
+    # small schedule: the percentage binds — 10 % of 600 = 60, 15 % = 90
+    assert band_edges(600, DEFAULT_DSM)[:2] == [60.0, 90.0]
+    # exactly on the first edge: all in band 1
+    r = dsm_charge(100.0, 5300, 49.95, p)
+    assert r.within_mw == 100.0 and r.beyond_mw == 0.0 and abs(r.amount_rs - 100 * 250 * 1.0 * 7.2) < 1e-6
+    # just past it: the next MW is priced at band 2
+    r = dsm_charge(101.0, 5300, 49.95, p)
+    assert abs(r.amount_rs - (100 * 1.0 + 1 * 1.5) * 250 * 7.2) < 1e-6 and r.marginal_rate == 1.5 * 7.2
+    # the review's example: 350 MW over at 49.95 Hz splits 100 / 100 / 150 across three bands
+    r = dsm_charge(350.0, 5300, 49.95, p)
+    assert [round(x["mw"]) for x in r.slices] == [100, 100, 150]
+    assert abs(r.amount_rs - (100 * 1.0 + 100 * 1.5 + 150 * 2.0) * 250 * 7.2) < 1e-6  # ₹9,90,000 (illustrative)
+    assert r.marginal_rate == 2.0 * 7.2
+    # under-drawal is a receivable (negative) and tiers too
+    r = dsm_charge(-150.0, 5300, 49.95, p)
+    assert r.amount_rs < 0 and abs(r.amount_rs + 100 * 0.9 * 250 * 7.2) < 1e-6  # band 2 under-drawal earns 0 here
+    # low frequency raises over-drawal multipliers
+    assert dsm_charge(50.0, 5300, 49.85, p).amount_rs > dsm_charge(50.0, 5300, 49.95, p).amount_rs
+    # schema-1 tables still load as two bands; inconsistent tables are refused
+    v1 = {"freq_low": 49.9, "freq_high": 50.05, "band_pct": 10, "band_cap_mw": 100, "overdrawal": {"LOW": [1.5, 2], "NORMAL": [1, 1.5], "HIGH": [0.5, 1]}, "underdrawal": {"LOW": [1, 0.5], "NORMAL": [0.9, 0], "HIGH": [0, 0]}}
+    assert len(normalise(v1)["bands"]) == 2
+    assert abs(dsm_charge(350.0, 5300, 49.95, p, v1).amount_rs - (100 * 1.0 + 250 * 1.5) * 250 * 7.2) < 1e-6
+    bad = dict(DEFAULT_DSM, overdrawal={"LOW": [1, 2], "NORMAL": [1, 2], "HIGH": [1, 2]})
+    with pytest.raises(ValueError):
+        normalise(bad)

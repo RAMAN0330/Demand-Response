@@ -27,7 +27,7 @@ from .decide.shedding import RosterManager
 from .detect.alarms import AlarmManager, Condition
 from .detect.detector import AnomalyDetector, conditions
 from .forecast.forecaster import Forecaster
-from .grid.dsm import DEFAULT_DSM
+from .grid.dsm import DEFAULT_DSM, normalise
 from .grid.state import Assessment, GridState, assess
 from .grid.topology import topology
 from .ingest.channels import channels
@@ -109,7 +109,10 @@ class Runtime:
                 self.policy.version = cfg["version"]
             dsm = await self.store.get_config("dsm_rules")
             if dsm:
-                self.dsm_cfg = dsm["value"]
+                try:
+                    self.dsm_cfg = normalise(dsm["value"])
+                except ValueError:
+                    log.exception("stored DSM table invalid — keeping defaults")
             sp = await self.store.get_config("shed_policy")
             if sp:
                 for k, v in sp["value"].items():
@@ -248,7 +251,7 @@ class Runtime:
             residual = max(0.0, float(res[0]))
         # follow the over-drawal the DR event was opened for: once feeders are open the instantaneous
         # direction can flip to under-drawal, which must not read as "need gone"
-        self.roster.dsm_band_mw = min(s.schedule_mw * self.dsm_cfg["band_pct"] / 100, self.dsm_cfg["band_cap_mw"])
+        self.roster.dsm_band_mw = a.dsm.band_mw  # first (tolerance) band of the rule table in force
         self.roster.step(now, s.frequency, dd.direction if dd else a.direction, residual, unshed)
         self.field.shed_frac = self.roster.shed_fraction()
         # dispatch

@@ -1,5 +1,5 @@
 // Administration — autonomy policy, data sources (incl. KPTCL SLDC pages), field simulator, DSM rules, users.
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { RefreshCw, Trash2, Zap } from 'lucide-react'
 import { FitPager, SectionTabs } from '@/components/common'
 import { Empty, Panel } from '@/components/page'
@@ -578,25 +578,53 @@ function SimulatorTab() {
 
 interface Dsm {
   version: string
+  regulation?: string
+  amendments_applied?: string[]
+  effective_from?: string | null
+  source?: string
+  approved_by?: string | null
   buyer_category: string
   freq_low: number
   freq_high: number
-  band_pct: number
-  band_cap_mw: number
-  overdrawal: Record<string, [number, number]>
-  underdrawal: Record<string, [number, number]>
+  bands: { label?: string; pct: number | null; cap_mw: number | null; combine?: 'min' | 'max' }[]
+  overdrawal: Record<string, number[]>
+  underdrawal: Record<string, number[]>
 }
 
 function DsmTab() {
   const { data } = useApi<Dsm>('/admin/config/dsm')
   if (!data) return <Empty>Loading…</Empty>
+  const illustrative = !data.effective_from || /illustrative/i.test(`${data.source} ${data.version}`)
+  const edge = (b: Dsm['bands'][number]) =>
+    b.pct == null && b.cap_mw == null ? 'beyond' : `${b.combine === 'max' ? 'max' : 'min'}(${b.pct ?? '—'}% of schedule, ${b.cap_mw ?? '—'} MW)`
+  const meta: [string, string][] = [
+    ['Version', data.version],
+    ['Regulation', data.regulation ?? '—'],
+    ['Amendments applied', data.amendments_applied?.length ? data.amendments_applied.join(' · ') : 'none recorded'],
+    ['Effective from', data.effective_from ?? 'not set'],
+    ['Source', data.source ?? '—'],
+    ['Approved by', data.approved_by ?? '—'],
+    ['Buyer category', data.buyer_category],
+  ]
   return (
     <div className="grid h-full grid-cols-2 gap-4">
       <div className="space-y-2 text-xs">
         <div className="text-[13px] font-semibold">Deviation Settlement Mechanism rule table</div>
-        <div className="text-slate-500">
-          Version <b>{data.version}</b> · {data.buyer_category}. Illustrative structure — load the notified CERC DSM regulation table via{' '}
-          <code className="rounded bg-slate-100 px-1">PUT /api/v1/admin/config/dsm</code> before go-live.
+        {illustrative && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+            Illustrative table — structure only. Load the notified CERC DSM table for this buyer category, read with all amendments and orders, via{' '}
+            <code className="rounded bg-white/70 px-1">PUT /api/v1/admin/config/dsm</code> (version, source, effective date required) before any settlement use.
+          </div>
+        )}
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-lg border px-3 py-2 text-[11px]">
+          {meta.map(([k, v]) => (
+            <Fragment key={k}>
+              <span className="text-slate-500">{k}</span>
+              <span className="truncate font-medium text-slate-700" title={v}>
+                {v}
+              </span>
+            </Fragment>
+          ))}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border px-3 py-2">
@@ -606,34 +634,45 @@ function DsmTab() {
             </div>
           </div>
           <div className="rounded-lg border px-3 py-2">
-            <div className="text-[10px] text-slate-500">Deviation band</div>
-            <div className="font-mono">
-              min({data.band_pct}% of schedule, {data.band_cap_mw} MW)
-            </div>
+            <div className="text-[10px] text-slate-500">Volume bands (upper edge of |deviation|)</div>
+            {data.bands.map((b, i) => (
+              <div key={i} className="font-mono text-[11px]">
+                {b.label ?? `Band ${i + 1}`}: {edge(b)}
+              </div>
+            ))}
           </div>
         </div>
         <div className="text-[11px] text-slate-500">
-          Charge = within-band MWh × m₁ × NR + beyond-band MWh × m₂ × NR, where NR = max(A, B, C) of DAM, RTM and weighted ancillary prices.
+          Charge per block = Σ over bands (MW in band × 0.25 h × 1000 × multiplier × NR); NR = max(DAM ACP, RTM ACP, (DAM + RTM + ancillary)/3). Over-drawal is payable,
+          under-drawal receivable.
         </div>
       </div>
       <div className="space-y-3">
         {(['overdrawal', 'underdrawal'] as const).map((k) => (
           <div key={k}>
-            <div className="mb-1 text-[12px] font-semibold capitalize">{k} — multiplier of NR</div>
+            <div className="mb-1 text-[12px] font-semibold capitalize">
+              {k} — multiplier of NR ({k === 'overdrawal' ? 'payable' : 'receivable'})
+            </div>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Frequency</TableHead>
-                  <TableHead className="text-right">Within band</TableHead>
-                  <TableHead className="text-right">Beyond band</TableHead>
+                  {data.bands.map((b, i) => (
+                    <TableHead key={i} className="text-right">
+                      {b.label ?? `Band ${i + 1}`}
+                    </TableHead>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.entries(data[k]).map(([f, [a, b]]) => (
+                {Object.entries(data[k]).map(([f, ms]) => (
                   <TableRow key={f}>
-                    <TableCell className="text-xs">{f === 'LOW' ? `< ${data.freq_low} Hz` : f === 'HIGH' ? `> ${data.freq_high} Hz` : 'Normal band'}</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{a}×</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{b}×</TableCell>
+                    <TableCell className="text-xs">{f === 'LOW' ? `< ${data.freq_low} Hz` : f === 'HIGH' ? `≥ ${data.freq_high} Hz` : 'Normal band'}</TableCell>
+                    {ms.map((m, i) => (
+                      <TableCell key={i} className="text-right font-mono text-[11px]">
+                        {m}×
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>

@@ -76,6 +76,7 @@ class Assessment:
     requirement_mw: float
     margin_mw: float
     dsm: DsmResult
+    dsm_cfg: dict | None = None  # the rule table in force — every later DSM calculation uses the same one
 
     @property
     def deviation_mw(self) -> float:
@@ -92,4 +93,5 @@ def assess(s: GridState, dsm_cfg: dict | None = None) -> Assessment:
         requirement_mw=abs(ace.ace),
         margin_mw=p90_margin(s.demand_mw, s.re_mw),
         dsm=dsm_charge(s.deviation_mw, s.schedule_mw, s.frequency, s.prices, dsm_cfg),
+        dsm_cfg=dsm_cfg,
     )

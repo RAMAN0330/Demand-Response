@@ -48,8 +48,8 @@ class Meter:
             self.expected_mwh[aid] = self.expected_mwh.get(aid, 0.0) + exp * h
             self.peak_mw[aid] = max(self.peak_mw.get(aid, 0.0), mw)
         frac = dt / 900
-        without = dsm_charge(a.deviation_mw + sign * delivered_total, s.schedule_mw, s.frequency, s.prices).amount_rs * frac
-        actual = dsm_charge(a.deviation_mw, s.schedule_mw, s.frequency, s.prices).amount_rs * frac
+        without = dsm_charge(a.deviation_mw + sign * delivered_total, s.schedule_mw, s.frequency, s.prices, a.dsm_cfg).amount_rs * frac
+        actual = dsm_charge(a.deviation_mw, s.schedule_mw, s.frequency, s.prices, a.dsm_cfg).amount_rs * frac
         self.do_nothing_rs += without
         self.actual_dsm_rs += actual
         self.avoided_dsm_rs += without - actual
