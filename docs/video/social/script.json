@@ -1,0 +1,99 @@
+{
+  "title": "ADRMS — Automated Demand Response Management System",
+  "voice": "af_heart",
+  "speed": 1.04,
+  "scenes": [
+    {
+      "id": "s01",
+      "kind": "title",
+      "chapter": "",
+      "say": "Every fifteen minutes, a state grid is billed for every megawatt it misses. This is ADRMS: demand response, run end to end."
+    },
+    {
+      "id": "s02",
+      "kind": "shot",
+      "chapter": "Watch",
+      "shot": "overview_calm",
+      "say": "It watches the grid every second: frequency, area control error, and the deviation charge building up.",
+      "moves": [{ "to": "full", "hold": 1.4 }, { "to": "gridneed", "spot": true }]
+    },
+    {
+      "id": "s03",
+      "kind": "shot",
+      "chapter": "Decide",
+      "shot": "overview_event",
+      "say": "When a shortfall opens, it explains the situation and proposes a plan, in plain language.",
+      "moves": [{ "to": "full", "hold": 0.8 }, { "to": "gridneed", "spot": true, "hold": 1.6 }, { "to": "intent", "spot": true, "click": "approve" }]
+    },
+    {
+      "id": "s04",
+      "kind": "shot",
+      "chapter": "Priority",
+      "shot": "events_coord",
+      "say": "The plan follows a strict priority. Batteries first. Then industrial flexibility. Then everything else.",
+      "moves": [{ "to": "panel", "hold": 1.0 }, { "to": "priority", "spot": true }]
+    },
+    {
+      "id": "s05",
+      "kind": "shot",
+      "chapter": "Measure",
+      "shot": "events_coord",
+      "say": "Every megawatt is tracked as planned versus measured, because an instruction is not a reduction.",
+      "moves": [{ "to": "ledger", "spot": true }]
+    },
+    {
+      "id": "s06",
+      "kind": "shot",
+      "chapter": "Safety",
+      "shot": "events_safety",
+      "say": "Before anything is dispatched, a digital twin screens the plan against line limits, battery charge and response time.",
+      "moves": [{ "to": "panel", "spot": true }]
+    },
+    {
+      "id": "s07",
+      "kind": "shot",
+      "chapter": "Industry",
+      "shot": "programs_ci",
+      "say": "Industries take part through offers, on their own window, response time and price.",
+      "moves": [{ "to": "full", "hold": 0.8 }, { "to": "table", "spot": true, "click": "table" }]
+    },
+    {
+      "id": "s08",
+      "kind": "shot",
+      "chapter": "Verify",
+      "shot": "programs_ci",
+      "say": "Delivery is verified against a metered baseline, and only verified energy is paid.",
+      "moves": [{ "to": "chart", "spot": true, "hold": 2.4 }, { "to": "mv", "spot": true }]
+    },
+    {
+      "id": "s09",
+      "kind": "shot",
+      "chapter": "Rotate",
+      "shot": "rotation_active",
+      "say": "Only what is left is rotated: fairly, within spell limits, keeping hospitals and water works on, and never without approval.",
+      "moves": [{ "to": "full", "hold": 0.8 }, { "to": "roster", "spot": true, "hold": 2.6 }, { "to": "order", "spot": true }]
+    },
+    {
+      "id": "s10",
+      "kind": "shot",
+      "chapter": "Test",
+      "shot": "whatif",
+      "say": "Operators can test any shortage first: no action, flexibility first, or rotation.",
+      "moves": [{ "to": "inputs#1/2", "spot": true, "hold": 1.2, "click": "inputs#1/2", "click_at": [0.88, 0.58] }, { "to": "cases#2/3", "spot": true, "hold": 1.7 }, { "to": "cases#3/3", "spot": true }]
+    },
+    {
+      "id": "s11",
+      "kind": "shot",
+      "chapter": "Settle",
+      "shot": "events_settlement",
+      "say": "Afterwards, every event settles against a counterfactual ledger, with a tamper-evident audit trail.",
+      "moves": [{ "to": "ledger", "spot": true, "hold": 2.6 }, { "to": "reports:kpis#5-8/8", "spot": true }]
+    },
+    {
+      "id": "s12",
+      "kind": "end",
+      "chapter": "",
+      "say": "ADRMS. Batteries first, industry next, rotation last, with the operator in control."
+    }
+  ]
+}
