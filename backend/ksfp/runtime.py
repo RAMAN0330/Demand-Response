@@ -22,6 +22,7 @@ from .core.clock import Clock
 from .core.settings import Settings
 from .decide.engine import DecisionEngine
 from .decide.policy import AutonomyPolicy, Envelope
+from .act.cmdauth import CommandVerifier
 from .decide.shedding import RosterManager
 from .detect.alarms import AlarmManager, Condition
 from .detect.detector import AnomalyDetector, conditions
@@ -61,7 +62,9 @@ class Runtime:
         self.audit = AuditLog()
         self.metrics = Metrics()
         self.reliability = {a["id"]: a["reliability"] for a in topology().assets}
-        self.commands = CommandManager(settings.jwt_secret)
+        self.commands = CommandManager(settings.command_key, settings.command_key_id)
+        # the simulated gateway verifies with its own key ring, exactly as a field gateway would
+        self.field.verifier = CommandVerifier({settings.command_key_id: settings.command_key.encode()})
         self.engine = DecisionEngine(self.commands, self.policy, self.reliability)
         self.roster = RosterManager()
         self.lock = asyncio.Lock()

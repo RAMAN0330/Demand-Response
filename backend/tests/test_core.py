@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from ksfp.act.cmdauth import CommandVerifier, envelope
 from ksfp.act.dispatch import CommandManager
 from ksfp.audit.log import AuditLog
 from ksfp.core.clock import Clock
@@ -181,6 +182,7 @@ def test_closed_loop_supervised_autonomy_resolves_event():
     f = SimulatedField(c, auto_disturbances=False)
     q = QualityLayer()
     cm = CommandManager("k")
+    f.verifier = CommandVerifier({"k1": b"k"})  # gateway checks every command's HMAC, freshness and replay
     eng = DecisionEngine(cm, AutonomyPolicy(level=3), {a["id"]: a["reliability"] for a in topology().assets})
     t0 = c.now()
     f.add(Disturbance("re_drop", {"mw": 700}, t0 + 60, 45 * 60, 240))
@@ -229,3 +231,62 @@ async def test_flush_keeps_audit_entries_appended_during_write(tmp_path):
     assert [e["seq"] for e in rows] == list(range(1, len(rows) + 1)) and len(rows) == 4
     assert AuditLog.verify(rows)["ok"]
     await r.store.engine.dispose()
+
+
+# ------------------------------------------------------------------ BESS energy convention
+def test_bess_energy_limit_counts_discharge_efficiency_once():
+    """Stored energy E above the floor can deliver E·ηd; the plan must reach that, not E·ηd²."""
+    from ksfp.decide.optimizer import BLOCK_H
+
+    _, _, s = run_field([Disturbance("re_drop", {"mw": 1200}, 0, 3600, 30)], 300)
+    t = topology()
+    spec = t.asset("A_PBESS")
+    bs = spec["bess"]
+    soc0 = 0.2
+    s.asset_state.setdefault("A_PBESS", {})["soc"] = soc0
+    a = assess(s)
+    assert a.direction == "UP"
+    evals = [evaluate(x, a, 4, 0.99) for x in t.assets]
+    plan = optimize(a, evals, 2000.0, 4, "BESS")
+    al = next(x for x in plan.allocations if x.asset_id == "A_PBESS")
+    stored = (soc0 - bs["socMin"]) * bs["energyMWh"]
+    delivered = sum(al.mw_by_block) * BLOCK_H
+    assert delivered <= stored * bs["etaD"] + 0.1
+    assert delivered >= stored * bs["etaD"] - 0.6  # energy-limited: uses what is really there
+    # the twin's minute-by-minute SoC must stay at or above the floor over consecutive blocks
+    tw = simulate(plan, a, evals, {})
+    assert min(tw.soc["A_PBESS"]) >= bs["socMin"] - 2e-3
+
+
+# ------------------------------------------------------------------ command authentication
+def test_command_hmac_rejects_tamper_wrong_key_stale_and_replay():
+    key, now = b"secret-key", 1_000_000.0
+    env = envelope(key, "k1", "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now)
+    assert len(env["mac"]) == 64  # full 256-bit tag, not truncated
+    v = CommandVerifier({"k1": key})
+    assert v.verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now + 2) == (True, "ok")
+    assert v.verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now + 3)[1] == "replayed command id"
+    fresh = CommandVerifier({"k1": key})
+    assert not fresh.verify(env, "CMD-1", "DC-1", "A_PBESS", 99.0, "DISPATCH", now)[0]  # setpoint tampered
+    assert not fresh.verify(env, "CMD-1", "DC-1", "A_OTHER", 42.5, "DISPATCH", now)[0]  # asset tampered
+    assert not CommandVerifier({"k1": b"other"}).verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now)[0]
+    assert not CommandVerifier({"k2": key}).verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now)[0]
+    assert "stale" in CommandVerifier({"k1": key}).verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now + 120)[1]
+    assert "future" in CommandVerifier({"k1": key}).verify(env, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now - 60)[1]
+    assert not CommandVerifier({"k1": key}).verify(None, "CMD-1", "DC-1", "A_PBESS", 42.5, "DISPATCH", now)[0]
+
+
+def test_gateway_refuses_commands_signed_with_the_wrong_key():
+    c = Clock(1, "14:58")
+    f = SimulatedField(c, auto_disturbances=False)
+    f.verifier = CommandVerifier({"k1": b"gateway-key"})
+    cm = CommandManager("control-centre-key-that-does-not-match")
+    now = c.now()
+    cmd = cm.create("DC-T", "A_PBESS", 20.0, 19.0, False, now)
+    cm.tick(now, f, {})
+    assert cmd.state == "SENT" and len(cmd.signature) == 64
+    assert f.rejected and f.rejected[-1]["reason"] == "authentication tag mismatch"
+    for i in range(1, 12):
+        f.step(now + i * 10)
+        cm.tick(now + i * 10, f, {})
+    assert cmd.state == "FAILED"  # never acked: the asset did not act on it

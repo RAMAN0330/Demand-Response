@@ -19,6 +19,9 @@ class Settings:
     env: str = field(default_factory=lambda: _env("KSFP_ENV", "dev"))
     database_url: str = field(default_factory=lambda: _env("KSFP_DATABASE_URL", "sqlite+aiosqlite:///./data/ksfp.db"))
     jwt_secret: str = field(default_factory=lambda: _env("KSFP_JWT_SECRET", "") or secrets.token_hex(32))
+    # command-authentication key shared with field gateways (separate from the session secret); set in production
+    command_key: str = field(default_factory=lambda: _env("KSFP_COMMAND_KEY", "") or secrets.token_hex(32))
+    command_key_id: str = field(default_factory=lambda: _env("KSFP_COMMAND_KEY_ID", "k1"))
     jwt_ttl_min: int = field(default_factory=lambda: int(_env("KSFP_JWT_TTL_MIN", "480")))
     # data source: "simulated" (field simulator) — real adapters (iec104, iccp) plug in at ingest.sources
     source: str = field(default_factory=lambda: _env("KSFP_SOURCE", "simulated"))

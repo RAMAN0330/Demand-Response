@@ -11,7 +11,7 @@ s.t. Σ_i R_i x[i,b] + s[b] ≥ req[b]                         (balance, expecte
      ±(f0_l + Σ_i PTDF[l,bus_i]·dir·x[i,b]) − v[l,b] ≤ limit_l   (thermal limits, N-0)
      x[i,b] ≤ avail_i ;  x[i,b] = 0 for b < earliest_i       (capacity, response time)
      x[i,b] − x[i,b−1] ≤ ramp_i·15 (x[i,−1] = current MW)    (ramp)
-     Σ_b x[i,b]·Δt/η ≤ E_i                                  (BESS energy)
+     Σ_b x[i,b]·Δt/ηd ≤ E_i (stored energy above SoC floor)  (BESS energy)
      Σ_b x[i,b] ≤ maxBlocks_i · avail_i                      (duration budget, LP relaxation)
 
 Minimum on/off times and start-up costs need binaries — the same builder feeds a MILP
@@ -152,7 +152,7 @@ def optimize(
                 "max_blocks": e.max_blocks,
                 "ramp": e.asset["rampMWpm"] * 15,
                 "current": e.current_mw,
-                "energy": (e.energy_mwh / e.asset["bess"]["etaD"] * e.asset["bess"]["etaD"]) if e.energy_mwh is not None else None,
+                "energy": e.energy_mwh,  # stored energy above the SoC floor (MWh, before discharge losses)
                 "etaD": e.asset["bess"]["etaD"] if e.asset.get("bess") else 1.0,
                 "rebound": e.asset["reboundFrac"],
                 "recovery_h": max(0.25, e.asset["recoveryMin"] / 60),
@@ -270,13 +270,13 @@ def optimize(
                 r[xi(j, b - 1)] = -1
                 b_rows.append(c["ramp"])
             A_rows.append(r)
-        # BESS energy
+        # BESS energy: stored energy drawn = delivered energy / ηd ≤ stored energy above the floor
         if c["energy"] is not None:
             r = row()
             for b in range(B):
                 r[xi(j, b)] = BLOCK_H / c["etaD"]
             A_rows.append(r)
-            b_rows.append(c["energy"] * c["etaD"])
+            b_rows.append(c["energy"])
         # duration budget
         if c["max_blocks"] < B:
             r = row()
@@ -308,7 +308,7 @@ def optimize(
         mwh = sum(exp) * BLOCK_H
         caps = []
         if max(mw) < c["avail"] - 0.5 and c["type"] != "rtm":
-            if c["energy"] is not None and sum(mw) * BLOCK_H / c["etaD"] >= c["energy"] * c["etaD"] - 0.5:
+            if c["energy"] is not None and sum(mw) * BLOCK_H / c["etaD"] >= c["energy"] - 0.5:
                 caps.append("Energy-limited (SoC floor)")
             if c["max_blocks"] < B and sum(mw) >= c["max_blocks"] * c["avail"] - 0.5:
                 caps.append(f"Max duration {c['max_blocks'] * 15} min")

@@ -17,6 +17,7 @@ import random
 import uuid
 from dataclasses import dataclass, field
 
+from ..act.cmdauth import CommandVerifier
 from ..core.clock import Clock
 from ..grid.topology import topology
 from .channels import channels
@@ -117,6 +118,9 @@ class SimulatedField:
         self.last_step = clock.now()
         self.next_auto = clock.now() + 8 * 60
         self.last_imbalance = 0.0
+        # gateway-side command authentication (set by the runtime); None = accept unauthenticated (unit tests)
+        self.verifier: CommandVerifier | None = None
+        self.rejected: list[dict] = []  # commands the gateway refused, with the reason
         for fa in self.assets.values():
             fa.last_heartbeat = self.last_step
         # calibration from live measurements (hybrid mode): fast factors drive the plant,
@@ -224,10 +228,16 @@ class SimulatedField:
             self.add(Disturbance(kind, {"gen": g, "mw": mw}, now, dur, 30, f"Unit trip: {g} −{mw} MW"))
 
     # ------------------------------------------------------------------ gateway (command path)
-    def send_setpoint(self, asset_id: str, setpoint: float, command_id: str, now: float) -> None:
+    def send_setpoint(self, asset_id: str, setpoint: float, command_id: str, now: float, auth: dict | None = None, decision_id: str = "", kind: str = "DISPATCH") -> None:
         fa = self.assets[asset_id]
         if not self._asset_comms_ok(asset_id, now):
             return  # lost in transit — no ack will ever come
+        if self.verifier is not None:
+            ok, why = self.verifier.verify(auth, command_id, decision_id, asset_id, setpoint, kind, now)
+            if not ok:
+                self.rejected.append({"ts": now, "command_id": command_id, "asset_id": asset_id, "reason": why})
+                del self.rejected[:-200]
+                return  # refused: never acted on, never acked → times out as FAILED on the control-centre side
         latency = self.rng.uniform(4, 18)  # seconds (sim)
         fa.pending.append((now + latency, setpoint, command_id))
 

@@ -3,24 +3,25 @@
     AWAITING_APPROVAL ─approve→ READY ─send→ SENT ─ack→ ACKED → EXECUTING → COMPLETED
                                               └ timeout → FAILED (asset excluded, alarm, re-solve)
     any non-terminal → CANCELLED (rejected/aborted) · SUPERSEDED (newer setpoint for the asset)
-Commands are idempotent (command_id) and signed; the gateway de-duplicates on command_id.
+Commands are idempotent (command_id) and authenticated with HMAC-SHA-256 when sent (see cmdauth.py); the
+gateway verifies the tag, freshness and replay independently and de-duplicates on command_id.
 """
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Protocol
 
 from ..grid.topology import topology
+from .cmdauth import envelope
 
 ACK_TIMEOUT_S = 90.0
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "SUPERSEDED"}
 
 
 class Gateway(Protocol):
-    def send_setpoint(self, asset_id: str, setpoint: float, command_id: str, now: float) -> None: ...
+    def send_setpoint(self, asset_id: str, setpoint: float, command_id: str, now: float, auth: dict | None = None, decision_id: str = "", kind: str = "DISPATCH") -> None: ...
 
     def ack_time(self, asset_id: str, command_id: str) -> float | None: ...
 
@@ -38,13 +39,14 @@ class Command:
     state: str
     created: float
     requires_approval: bool
-    signature: str
+    signature: str  # HMAC tag (hex) once sent; empty until then
     sent_at: float | None = None
     acked_at: float | None = None
     executing_at: float | None = None
     closed_at: float | None = None
     delivered_mw: float = 0.0
     under_delivering: bool = False
+    auth: dict | None = None  # {alg, v, key_id, issued_at, mac}
     note: str = ""
     history: list[tuple[float, str]] = field(default_factory=list)
 
@@ -62,14 +64,14 @@ class Command:
 
 @dataclass
 class CommandManager:
-    secret: str
+    key: str  # command-authentication key (shared with gateways under key_id)
+    key_id: str = "k1"
     commands: dict[str, Command] = field(default_factory=dict)
     events: list[tuple[str, Command]] = field(default_factory=list)  # drained by runtime
 
     def create(self, decision_id: str, asset_id: str, setpoint: float, expected: float, requires_approval: bool, now: float, kind: str = "DISPATCH") -> Command:
         a = topology().asset(asset_id) if asset_id != "RTM" else {"name": "RTM purchase", "protocol": "Exchange API"}
         cid = "CMD-" + uuid.uuid4().hex[:10].upper()
-        sig = hashlib.sha256(f"{self.secret}|{cid}|{asset_id}|{setpoint:.2f}".encode()).hexdigest()[:16]
         # supersede older live commands for the same asset
         for c in self.commands.values():
             if c.asset_id == asset_id and c.state not in TERMINAL:
@@ -87,7 +89,7 @@ class CommandManager:
             state="AWAITING_APPROVAL" if requires_approval else "READY",
             created=now,
             requires_approval=requires_approval,
-            signature=sig,
+            signature="",
         )
         cmd.history.append((now, cmd.state))
         self.commands[cid] = cmd
@@ -127,7 +129,9 @@ class CommandManager:
                     c.sent_at = c.acked_at = c.executing_at = now
                     self.events.append(("executing", c))
                     continue
-                gw.send_setpoint(c.asset_id, c.setpoint, c.id, now)
+                c.auth = envelope(self.key.encode(), self.key_id, c.id, c.decision_id, c.asset_id, c.setpoint, c.kind, now)
+                c.signature = c.auth["mac"]
+                gw.send_setpoint(c.asset_id, c.setpoint, c.id, now, c.auth, c.decision_id, c.kind)
                 c.sent_at = now
                 c.move("SENT", now)
                 self.events.append(("sent", c))
