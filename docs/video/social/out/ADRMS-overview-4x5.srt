@@ -1,0 +1,140 @@
+1
+00:00:00,450 --> 00:00:01,822
+Every fifteen minutes,
+
+2
+00:00:01,822 --> 00:00:05,067
+a state grid is billed for every megawatt it misses.
+
+3
+00:00:05,067 --> 00:00:05,941
+This is ADRMS:
+
+4
+00:00:05,941 --> 00:00:07,938
+demand response, run end to end.
+
+5
+00:00:09,487 --> 00:00:11,508
+It watches the grid every second:
+
+6
+00:00:11,508 --> 00:00:13,345
+frequency, area control error,
+
+7
+00:00:13,345 --> 00:00:15,611
+and the deviation charge building up.
+
+8
+00:00:16,660 --> 00:00:18,166
+When a shortfall opens,
+
+9
+00:00:18,166 --> 00:00:21,178
+it explains the situation and proposes a plan,
+
+10
+00:00:21,178 --> 00:00:22,356
+in plain language.
+
+11
+00:00:23,406 --> 00:00:25,654
+The plan follows a strict priority.
+
+12
+00:00:25,654 --> 00:00:28,543
+Batteries first. Then industrial flexibility.
+
+13
+00:00:28,543 --> 00:00:29,891
+Then everything else.
+
+14
+00:00:30,941 --> 00:00:33,929
+Every megawatt is tracked as planned versus measured,
+
+15
+00:00:33,929 --> 00:00:36,296
+because an instruction is not a reduction.
+
+16
+00:00:37,347 --> 00:00:39,194
+Before anything is dispatched,
+
+17
+00:00:39,194 --> 00:00:42,397
+a digital twin screens the plan against line limits,
+
+18
+00:00:42,397 --> 00:00:44,429
+battery charge and response time.
+
+19
+00:00:45,480 --> 00:00:47,591
+Industries take part through offers,
+
+20
+00:00:47,591 --> 00:00:48,765
+on their own window,
+
+21
+00:00:48,765 --> 00:00:50,173
+response time and price.
+
+22
+00:00:51,223 --> 00:00:54,332
+Delivery is verified against a metered baseline,
+
+23
+00:00:54,332 --> 00:00:56,471
+and only verified energy is paid.
+
+24
+00:00:57,521 --> 00:00:59,320
+Only what is left is rotated:
+
+25
+00:00:59,320 --> 00:01:01,058
+fairly, within spell limits,
+
+26
+00:01:01,058 --> 00:01:03,354
+keeping hospitals and water works on,
+
+27
+00:01:03,354 --> 00:01:05,030
+and never without approval.
+
+28
+00:01:06,080 --> 00:01:08,686
+Operators can test any shortage first:
+
+29
+00:01:08,686 --> 00:01:10,675
+no action, flexibility first,
+
+30
+00:01:10,675 --> 00:01:11,499
+or rotation.
+
+31
+00:01:12,549 --> 00:01:16,282
+Afterwards, every event settles against a counterfactual ledger,
+
+32
+00:01:16,282 --> 00:01:18,266
+with a tamper-evident audit trail.
+
+33
+00:01:19,316 --> 00:01:20,800
+ADRMS. Batteries first,
+
+34
+00:01:20,800 --> 00:01:22,671
+industry next, rotation last,
+
+35
+00:01:22,671 --> 00:01:24,542
+with the operator in control.
+
