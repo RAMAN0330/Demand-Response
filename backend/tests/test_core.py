@@ -320,3 +320,30 @@ def test_cost_model_is_coherent_from_ranking_to_settlement():
     m = Meter(delivered_mwh={al.asset_id: 2.0}, expected_mwh={al.asset_id: 2.0})
     row = m.settle({}, {al.asset_id: al.rate_rs})["rows"][0]
     assert row["rate_rs"] == al.rate_rs and abs(row["payment_rs"] - 2.0 * 1000 * al.rate_rs) < 1.0
+
+
+# ------------------------------------------------------------------ within-block response
+def test_slow_responder_is_credited_only_for_what_it_delivers_inside_the_block():
+    from ksfp.decide.flexibility import delivery_factors
+
+    # 12-min response, instant ramp: only the last 3 of 15 minutes of block 1 → 20 %, then full blocks
+    assert delivery_factors(12, 1e6, 50, 3) == [0.2, 1.0, 1.0]
+    # same delay with a 5-min ramp to setpoint
+    f = delivery_factors(12, 10, 50, 2)
+    # block 1: ramp 0→60 % over minutes 12–15 → 0.9 MWmin-equivalent of 15; block 2: rest of ramp (2.5 − 0.9) + 13 full minutes
+    assert abs(f[0] - (3**2 / (2 * 5)) / 15) < 1e-3 and abs(f[1] - (2.5 - 0.9 + 13) / 15) < 1e-3
+    assert delivery_factors(30, 100, 50, 3)[:2] == [0.0, 0.0]  # 30-min response: nothing in blocks 1–2
+    assert delivery_factors(12, 1, 50, 2, active=True) == [1.0, 1.0]  # already at setpoint
+
+    # in the plan, expected block-1 energy reflects the factor, so residual DSM is not understated
+    _, _, s = run_field([Disturbance("re_drop", {"mw": 900}, 0, 3600, 30)], 300)
+    a = assess(s)
+    evals = [evaluate(x, a, 4, x["reliability"]) for x in topology().assets]
+    plan = optimize(a, evals, a.requirement_mw, 4, "OPTIMAL")
+    ev = {e.id: e for e in evals}
+    for al in plan.allocations:
+        if al.type == "rtm":
+            continue
+        phi = ev[al.asset_id].factors
+        for b in range(4):
+            assert abs(al.expected_by_block[b] - al.mw_by_block[b] * al.reliability * phi[b]) < 0.05

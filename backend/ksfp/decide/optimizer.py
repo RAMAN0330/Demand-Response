@@ -1,18 +1,20 @@
 """Network-constrained multi-block dispatch as a linear program (HiGHS via scipy).
 
 Decision variables, for resources i and blocks b:
-  x[i,b] ≥ 0   MW commanded
+  x[i,b] ≥ 0   MW commanded (setpoint)
+  φ[i,b]       share of block b's energy actually delivered after response delay and ramp (flexibility.py),
+               so expected delivery in block b is R_i·φ[i,b]·x[i,b] — never a full block from a slow starter
   s[b]   ≥ 0   unserved requirement (penalised at λ, above any economic resource)
   v[l,b] ≥ 0   overload slack on line l (penalised at μ ≫ λ; keeps the LP feasible when an
                overload pre-exists, and makes the solver *prefer* relieving resources)
 
-min  Σ (pay+rebound)_i · R_i · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
+min  Σ (pay+rebound)_i · R_i · φ[i,b] · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
      (₹ per delivered kWh × expected delivered energy — the same rate settlement pays)
-s.t. Σ_i R_i x[i,b] + s[b] ≥ req[b]                         (balance, expected MW)
+s.t. Σ_i R_i φ[i,b] x[i,b] + s[b] ≥ req[b]                  (balance, expected block-average MW)
      ±(f0_l + Σ_i PTDF[l,bus_i]·dir·x[i,b]) − v[l,b] ≤ limit_l   (thermal limits, N-0)
      x[i,b] ≤ avail_i ;  x[i,b] = 0 for b < earliest_i       (capacity, response time)
      x[i,b] − x[i,b−1] ≤ ramp_i·15 (x[i,−1] = current MW)    (ramp)
-     Σ_b x[i,b]·Δt/ηd ≤ E_i (stored energy above SoC floor)  (BESS energy)
+     Σ_b φ[i,b] x[i,b]·Δt/ηd ≤ E_i (stored above SoC floor)  (BESS energy)
      Σ_b x[i,b] ≤ maxBlocks_i · avail_i                      (duration budget, LP relaxation)
 
 Minimum on/off times and start-up costs need binaries — the same builder feeds a MILP
@@ -152,6 +154,7 @@ def optimize(
                 "eff": e.effective_cost,
                 "avail": avail,
                 "earliest": e.earliest_block,
+                "phi": list(e.factors[:blocks]) + [1.0] * max(0, blocks - len(e.factors)),
                 "max_blocks": e.max_blocks,
                 "ramp": e.asset["rampMWpm"] * 15,
                 "current": e.current_mw,
@@ -174,6 +177,7 @@ def optimize(
                 "eff": s.prices.rtm_acp + 0.05,
                 "avail": 5000.0,
                 "earliest": RTM_LEAD_BLOCKS,
+                "phi": [0.0 if b < RTM_LEAD_BLOCKS else 1.0 for b in range(blocks)],
                 "max_blocks": 96,
                 "ramp": 1e6,
                 "current": 0.0,
@@ -221,7 +225,7 @@ def optimize(
     c_vec = np.zeros(N)
     for j, c in enumerate(cands):
         for b in range(B):
-            c_vec[xi(j, b)] = c["unit_cost"] * c["R"] * BLOCK_H * 1000 + 1e-3 * j  # tiny tie-break → stable merit order
+            c_vec[xi(j, b)] = c["unit_cost"] * c["R"] * c["phi"][b] * BLOCK_H * 1000 + 1e-3 * j  # tiny tie-break → stable merit order
     for b in range(B):
         c_vec[si(b)] = lam
     for k in range(nv):
@@ -237,7 +241,7 @@ def optimize(
     for b in range(B):
         r = row()
         for j, c in enumerate(cands):
-            r[xi(j, b)] = -c["R"]
+            r[xi(j, b)] = -c["R"] * c["phi"][b]
         r[si(b)] = -1
         A_rows.append(r)
         b_rows.append(-req[b])
@@ -246,7 +250,7 @@ def optimize(
     for b in range(B):
         r = row()
         for j, c in enumerate(cands):
-            r[xi(j, b)] = c["R"]
+            r[xi(j, b)] = c["R"] * c["phi"][b]
         A_rows.append(r)
         b_rows.append(req[b] * 1.05 + 20)
     # thermal limits (both directions)
@@ -278,7 +282,7 @@ def optimize(
         if c["energy"] is not None:
             r = row()
             for b in range(B):
-                r[xi(j, b)] = BLOCK_H / c["etaD"]
+                r[xi(j, b)] = c["phi"][b] * BLOCK_H / c["etaD"]
             A_rows.append(r)
             b_rows.append(c["energy"])
         # duration budget
@@ -292,7 +296,7 @@ def optimize(
     bounds = []
     for j, c in enumerate(cands):
         for b in range(B):
-            bounds.append((0.0, 0.0 if b < c["earliest"] else c["avail"]))
+            bounds.append((0.0, 0.0 if (b < c["earliest"] or c["phi"][b] <= 0.01) else c["avail"]))
     bounds += [(0.0, None)] * (ns + nv)
 
     res = linprog(c_vec, A_ub=np.array(A_rows) if A_rows else None, b_ub=np.array(b_rows) if b_rows else None, bounds=bounds, method="highs")
@@ -308,11 +312,11 @@ def optimize(
                 reason = f"Responds from block {c['earliest'] + 1} — outside the {B}-block horizon" if c["type"] != "rtm" else f"RTM delivers from block {RTM_LEAD_BLOCKS + 1} (gate closure) — beyond this horizon"
             skipped.append({"asset_id": c["id"], "name": c["name"], "reason": reason})
             continue
-        exp = [v * c["R"] for v in mw]
+        exp = [v * c["R"] * c["phi"][b] for b, v in enumerate(mw)]  # block-average expected delivery
         mwh = sum(exp) * BLOCK_H
         caps = []
         if max(mw) < c["avail"] - 0.5 and c["type"] != "rtm":
-            if c["energy"] is not None and sum(mw) * BLOCK_H / c["etaD"] >= c["energy"] - 0.5:
+            if c["energy"] is not None and sum(v * c["phi"][b] for b, v in enumerate(mw)) * BLOCK_H / c["etaD"] >= c["energy"] - 0.5:
                 caps.append("Energy-limited (SoC floor)")
             if c["max_blocks"] < B and sum(mw) >= c["max_blocks"] * c["avail"] - 0.5:
                 caps.append(f"Max duration {c['max_blocks'] * 15} min")

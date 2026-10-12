@@ -17,6 +17,32 @@ from dataclasses import dataclass, field
 from ..grid.state import Assessment
 
 BLOCK_H = 0.25
+BLOCK_MIN = 15.0
+
+
+def delivery_factors(response_min: float, ramp_mw_per_min: float, mw: float, blocks: int, active: bool = False) -> list[float]:
+    """Share of a block's energy actually delivered when commanded `mw` at the start of the horizon.
+
+    Output is 0 until the response delay d, then ramps at the ramp rate to the setpoint (τ = mw / ramp):
+        g(t) = clamp((t − d) / τ, 0, 1)          φ_b = (1/15) ∫ g(t) dt over block b
+    so expected energy in block b is φ_b × setpoint × 15 min. A resource already delivering is at its
+    setpoint (φ = 1); re-solves each block keep that true as the event goes on.
+    """
+    if active:
+        return [1.0] * blocks
+    d = max(0.0, response_min)
+    tau = mw / ramp_mw_per_min if ramp_mw_per_min > 0 else 0.0
+
+    def G(t: float) -> float:  # ∫_0^t g
+        if t <= d:
+            return 0.0
+        if tau <= 1e-9:
+            return t - d
+        if t <= d + tau:
+            return (t - d) ** 2 / (2 * tau)
+        return tau / 2 + (t - d - tau)
+
+    return [round((G((b + 1) * BLOCK_MIN) - G(b * BLOCK_MIN)) / BLOCK_MIN, 4) for b in range(blocks)]
 
 
 @dataclass
@@ -31,6 +57,7 @@ class FlexEval:
     expected_mw: float
     earliest_block: int
     max_blocks: int
+    factors: list[float]  # per horizon block: share of the block's energy delivered (response delay + ramp)
     bid_rs: float
     opportunity_rs: float  # informational: the participant's own cost (priced into the bid for demand-side)
     pay_rs: float  # ₹ paid per delivered kWh (negative = credit, e.g. generation backing down)
@@ -62,6 +89,7 @@ class FlexEval:
             "locked_mw": self.locked_mw,
             "emergency_mw": self.emergency_mw,
             "response_min": a["responseMin"],
+            "delivery_factors": self.factors,
             "effective_cost": self.effective_cost,
             "pay_rs": self.pay_rs,
             "rebound_rs": self.rebound_rs,
@@ -131,7 +159,8 @@ def evaluate(
     rel = max(0.05, min(0.995, reliability))
     eff = pay + rebound
     resp = asset["responseMin"]
-    earliest = 0 if (resp <= 15 or current > 0.5) else int(-(-resp // 15)) - 1
+    factors = delivery_factors(resp, asset["rampMWpm"], max(available, 1.0), duration_blocks, active=current > 0.5)
+    earliest = next((b for b, x in enumerate(factors) if x > 0.01), duration_blocks)
     max_blocks = max(1, int(asset["maxDurationMin"] // 15) - active_blocks)
     if active_blocks:
         notes.append(f"active for {active_blocks} block(s); {max_blocks} remaining")
@@ -146,6 +175,7 @@ def evaluate(
         expected_mw=available * rel,
         earliest_block=earliest,
         max_blocks=max_blocks,
+        factors=factors,
         bid_rs=bid,
         opportunity_rs=opp,
         pay_rs=pay,
