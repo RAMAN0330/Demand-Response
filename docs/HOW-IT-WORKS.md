@@ -1,6 +1,6 @@
 # How the Demand Response Platform works
 
-This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated. Formulas are taken from the backend source (`backend/ksfp/…`); file references are given so each one can be checked.
+This document explains what the platform does on every tick, which strategies it weighs, and exactly how each number on screen is calculated — the maths, the reasoning behind each choice, and worked numbers.
 
 > **Deployment status: simulation and advisory prototype.** The architecture (monitor → assess → optimise → safety-check → approve → dispatch → measure → settle → audit) is a sound basis for SLDC decision support, but the platform is **not ready for autonomous grid control**. Before operational commands or shedding are authorised it needs: authenticated, fresh SCADA/EMS telemetry (§2.1); the notified DSM table with all amendments (§3.4); a validated network model with AC voltage studies (§3.2, §5.5); the DISCOM's approved feeder roster (§7); and shadow-mode replay against historical operations (§12).
 >
@@ -28,18 +28,18 @@ SCADA / SLDC feed ─► quality ─► state estimate ─► assess ─► dete
                                      └──────────── forecast (every sim minute) ◄─┘
 ```
 
-| Stage | What happens | Code |
-| --- | --- | --- |
-| Ingest | Simulated field, or the live SLDC website (all DISCOM 220 kV load pages + StateGen) in `hybrid` mode | `ingest/field.py`, `ingest/kptcl.py` |
-| Quality | Every point validated and flagged GOOD / SUBSTITUTED / SUSPECT / STALE / MISSING | `ingest/quality.py` |
-| Estimate | Consistent grid state; missing bus loads filled in by load share; DC power flow | `ingest/estimator.py`, `grid/network.py` |
-| Assess | ACE, severity, direction, requirement, DSM exposure | `grid/state.py`, `grid/dsm.py` |
-| Detect | Rule and anomaly alarms with on/off delays, correlated into incidents | `detect/detector.py`, `detect/alarms.py` |
-| Decide | Open or revise a DR event: flexibility → LP optimiser → Digital Twin → autonomy policy | `decide/engine.py` |
-| Shed | Roster manager proposes rotational shedding for the residual that flexibility can't cover | `decide/shedding.py` |
-| Act | HMAC-authenticated setpoint commands, acks, timeouts, dead-band | `act/dispatch.py`, `act/cmdauth.py` |
-| M&V / settle | Delivered vs expected energy, avoided DSM, payments, reliability learning | `act/settlement.py` |
-| Audit | Every step appended to a SHA-256 hash chain | `audit/log.py` |
+| Stage | What happens |
+| --- | --- |
+| Ingest | Simulated field, or the live SLDC website (all DISCOM 220 kV load pages + StateGen) in hybrid mode |
+| Quality | Every point validated and flagged GOOD / SUBSTITUTED / SUSPECT / STALE / MISSING |
+| Estimate | Consistent grid state; missing bus loads filled in by load share; DC power flow |
+| Assess | ACE, severity, direction, requirement, DSM exposure |
+| Detect | Rule and anomaly alarms with on/off delays, correlated into incidents |
+| Decide | Open or revise a DR event: flexibility → LP optimiser → Digital Twin → autonomy policy |
+| Shed | Roster manager proposes rotational shedding for the residual that flexibility can't cover |
+| Act | HMAC-authenticated setpoint commands, acks, timeouts, dead-band |
+| M&V / settle | Delivered vs expected energy, avoided DSM, payments, reliability learning |
+| Audit | Every step appended to a SHA-256 hash chain |
 
 Write-behind persistence runs every 10 s, and a watchdog degrades autonomy if the loop slows.
 
@@ -66,7 +66,7 @@ Confirm exchange rules and grid-code provisions in force at implementation time.
 
 ## 3. Measuring the grid
 
-### 3.1 Data quality and confidence (`ingest/quality.py`)
+### 3.1 Data quality and confidence
 
 Each telemetry point has a range, a maximum plausible rate of change (spike check) and a time-to-live. **Age is measured from the source timestamp** (when the value was measured or fetched), never from when the platform re-read it — so a 5-minute-old web value re-delivered every second does not look fresh. A point is GOOD only while its source age is ≤ 10 s. Quality weights:
 
@@ -89,7 +89,7 @@ confidence = 0.25 · w(frequency)
 - Below **85%**, autonomy drops automatically to advisory (every command needs approval).
 - Below 97% a P3 alarm is raised, and below 80% a P2 alarm.
 
-**Hard vetoes.** An average can stay above 85% while one critical input is bad, so each of these forces advisory on its own, whatever the score (`runtime._safety_vetoes`):
+**Hard vetoes.** An average can stay above 85% while one critical input is bad, so each of these forces advisory on its own, whatever the score:
 
 - frequency not GOOD (stale, substituted or missing);
 - interchange schedule stale, suspect or missing (ACE cannot be trusted);
@@ -98,18 +98,18 @@ confidence = 0.25 · w(frequency)
 
 Per-asset vetoes send just that asset to approval: gateway heartbeat lost (command path unproven), or BESS state-of-charge telemetry stale. The top bar's data pill shows the worst source age and lists every active veto.
 
-### 3.2 State estimate (`ingest/estimator.py`)
+### 3.2 State estimate
 
 - A missing or bad bus load is estimated as `(Σ good loads / Σ their load shares) × this bus's load share`, so one failed RTU lowers confidence rather than corrupting the state.
 - Demand = Σ bus loads. Generation is split into in-state and central share.
-- A DC power flow (`grid/network.py`) gives line flows: `flows = H · p`.
+- A DC power flow gives line flows: `flows = H · p`.
   - `p` is net injection at each internal bus.
   - `H` is the PTDF matrix with distributed slack at the inter-state tie buses.
   - `H` is cached per outage set.
 - Voltage is a **heuristic screening estimate**: `V ≈ 1.035 − 0.075·(worst adjacent loading)²` pu. A DC model does not solve voltage or reactive power, so this cannot certify voltage compliance.
 - The DC model is a planning-level screen. Live use needs a validated network model — actual topology, impedances, transformer limits, line ratings, outage configurations — with AC load flow and the applicable contingency studies.
 
-### 3.3 Area Control Error and severity (`grid/state.py`)
+### 3.3 Area Control Error and severity
 
 IEGC definition:
 
@@ -141,7 +141,7 @@ Severity:
 margin = 1.28 · √( (0.5% · demand)² + (6% · renewables)² )
 ```
 
-### 3.4 DSM charge (`grid/dsm.py`)
+### 3.4 DSM charge
 
 **Normal Rate**
 
@@ -152,7 +152,7 @@ C  = (DAM + RTM + ancillary) / 3
 NR = max(A, B, C)
 ```
 
-The rule table is **versioned configuration**. Each table records its regulation, amendments applied, effective date, source and approver, and `PUT /api/v1/admin/config/dsm` refuses a table without a version, source and effective date. The table in force is used everywhere: assessment, optimiser, strategy comparison and M&V.
+The rule table is **versioned configuration**. Each table records its regulation, amendments applied, effective date, source and approver, and the platform refuses a table without a version, source and effective date (an engineer loads it under Administration → DSM rules). The table in force is used everywhere: assessment, optimiser, strategy comparison and M&V.
 
 **Volume bands.** The 2024 structure prices successive slices of |deviation| differently. Each band's upper edge is the lower of a percentage of schedule and an MW cap:
 
@@ -187,7 +187,7 @@ Over-drawal is payable (+); under-drawal is receivable (−), with its own multi
 
 ---
 
-## 4. Seeing ahead: the forecast (`forecast/forecaster.py`)
+## 4. Seeing ahead: the forecast
 
 **Horizon:** 8 blocks (2 hours), each with P10, P50 and P90 values.
 
@@ -226,15 +226,15 @@ P10/P90  = P50 ∓ 1.2816 · σ
 
 **5. Accuracy.** The 1-block-ahead demand forecast is scored against what happened, giving the **MAPE** over the last 96 samples.
 
-**Anomaly detection** (`detect/detector.py`):
+**Anomaly detection:**
 - An EWMA z-score runs on the demand forecast residual: α = 0.02, learning only from normal behaviour (|z| < 4).
 - |z| ≥ 4 raises a demand-anomaly alarm.
 
-The production ML ensemble (LightGBM / TFT) plugs in behind the same `forecast()` contract, and the accuracy tracker scores whichever model is in use.
+The production ML ensemble (LightGBM / TFT) can replace this model behind the same interface, and the accuracy tracker scores whichever model is in use.
 
 ---
 
-## 5. Deciding: the DR event engine (`decide/engine.py`)
+## 5. Deciding: the DR event engine
 
 ### 5.1 When an event opens, revises and closes
 
@@ -260,7 +260,7 @@ flexibility of every asset ─► LP optimiser (OPTIMAL) ─► Digital Twin ─
                                    └── exclude / derate, re-solve ◄───┘ fail (up to 4 passes)
 ```
 
-### 5.2 What each resource can really give (`decide/flexibility.py`)
+### 5.2 What each resource can really give
 
 **Technical headroom** in the event's direction:
 
@@ -312,7 +312,7 @@ Still to be learned per resource: time to first response, to 50% and to full out
 
 **Economic DR only in NORMAL.** When severity is NORMAL, a resource whose effective cost (₹ per delivered kWh) ≥ the DSM marginal rate (₹ per kWh of deviation) is skipped, because paying it would cost more than the deviation it removes.
 
-### 5.3 The optimiser (`decide/optimizer.py`)
+### 5.3 The optimiser
 
 A network-constrained, multi-block linear program, solved with HiGHS. Horizon = 4 blocks (1 hour), re-solved every block (model-predictive control).
 
@@ -385,7 +385,7 @@ The Options tab pins the chosen plan first and ranks the rest by **total cost**.
 
 If a cheaper option exists (by more than max(₹1,000, 0.5%)), the banner says what it gives up: lower coverage, a worse line loading, or slower action. Under-drawal settles at up to 0.9×NR, so over-covering can show up as a **DSM credit**.
 
-### 5.5 Digital Twin safety gate (`decide/twin.py`)
+### 5.5 Digital Twin safety gate
 
 Before any command, the plan is simulated minute by minute against live state:
 
@@ -405,7 +405,7 @@ Up to 4 optimise → twin passes. If the twin still fails, a human must decide.
 
 The twin is a **pre-dispatch screening gate**, not a substitute for utility-grade network validation. A DC flow cannot establish that a real switching or dispatch action is safe.
 
-### 5.6 Autonomy policy and approvals (`decide/policy.py`)
+### 5.6 Autonomy policy and approvals
 
 | Level | Behaviour |
 | --- | --- |
@@ -427,7 +427,7 @@ Per-asset vetoes (lost heartbeat, stale SoC) send that asset to approval even at
 - The second approver must be a different user with dual authority.
 - If a re-solve grows the plan beyond 1.1 × approved + 20 MW, a new approval round starts.
 
-### 5.7 Dispatch (`act/dispatch.py`)
+### 5.7 Dispatch
 
 Command lifecycle:
 
@@ -439,14 +439,14 @@ AWAITING_APPROVAL → READY → SENT → ACKED → EXECUTING → COMPLETED
 Any non-terminal command can end as CANCELLED (rejected or aborted) or SUPERSEDED (a newer setpoint for that asset).
 
 - Commands are idempotent (command id) and there is **no blind resend**.
-- **Authentication** (`act/cmdauth.py`): when a command is sent, the platform computes HMAC-SHA-256 over a canonical message `{v, key_id, id, decision, asset, setpoint, kind, issued_at}` with a dedicated key (`KSFP_COMMAND_KEY`, separate from the session secret; rotate by key id). The gateway verifies independently with its own copy of the key and refuses an unknown key id, a tag mismatch (constant-time compare), a message older than 30 s or from the future, or a replayed command id. This is message authentication, not a public-key signature; use an asymmetric scheme (e.g. Ed25519) where non-repudiation is required. The audit hash chain (§9) is a separate mechanism.
+- **Authentication:** when a command is sent, the platform computes HMAC-SHA-256 over a fixed-format message (format version, key id, command id, DR event, resource, setpoint, command kind and issue time) with a dedicated command key (separate from the login/session secret; rotated by key id). The gateway verifies independently with its own copy of the key and refuses an unknown key id, a tag mismatch (constant-time compare), a message older than 30 s or from the future, or a replayed command id. This is message authentication, not a public-key signature; use an asymmetric scheme (e.g. Ed25519) where non-repudiation is required. The audit hash chain (§9) is a separate mechanism.
 - **Four clocks per command:** acknowledgement (comms), first metered response (10% of the way to setpoint), full output (90%) and delivered energy (M&V). The Dispatch tab shows ack · first · full in seconds from send. The 90 s ack timeout is a comms limit, not a delivery guarantee.
 - **Dead-band:** a new setpoint is sent only if it differs from the current one by more than max(5 MW, 8%). Small re-solves don't churn participants.
 - **Under-delivery:** delivered < 70% of expected raises an alarm, and the next re-solve compensates.
 
 ---
 
-## 6. Proving it and paying for it (`act/settlement.py`)
+## 6. Proving it and paying for it
 
 **Measurement & verification** runs every tick while an event executes:
 
@@ -490,7 +490,7 @@ reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
 
 ---
 
-## 7. Last resort: load shedding and rostering (`decide/shedding.py`)
+## 7. Last resort: load shedding and rostering
 
 **Order of resort for over-drawal:** paid flexibility first (DR, BESS, generation, RTM). Only the **residual** (the optimiser's unserved MW in block 1, with MW already shed counted in) can become a shedding order. Under-drawal is never handled by shedding.
 
@@ -543,7 +543,7 @@ A group is eligible only if it is not already shed, has at least 10 min of its d
 
 ---
 
-## 8. Alarms (`detect/alarms.py`, ISA-18.2 style)
+## 8. Alarms (ISA-18.2 style)
 
 | Alarm | Priority | Condition | On-delay |
 | --- | --- | --- | --- |
