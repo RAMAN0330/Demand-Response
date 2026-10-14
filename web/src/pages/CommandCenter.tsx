@@ -26,7 +26,7 @@ import {
 import { FitPager } from '@/components/common'
 import { GoLink, KpiCard, Prio, StoryChain } from '@/components/page'
 import { EventTimeline } from '@/components/spatial/EventTimeline'
-import { glass, GlassPanel } from '@/components/spatial/Glass'
+import { GlassPanel } from '@/components/spatial/Glass'
 import { useEventPlayback } from '@/components/spatial/useEventPlayback'
 import { TerritoryMap } from '@/components/three/TerritoryMap'
 import { Button } from '@/components/ui/button'
@@ -197,7 +197,7 @@ function DrStrip({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const toggle = (
     <button
       onClick={onToggle}
-      className={cn('pointer-events-auto grid w-7 shrink-0 place-items-center rounded-xl text-slate-500 hover:text-slate-800', glass)}
+      className={cn('surface-tile pointer-events-auto grid w-7 shrink-0 place-items-center text-slate-500 hover:text-slate-800')}
       aria-label={open ? 'Collapse KPIs' : 'Expand KPIs'}
     >
       {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
@@ -206,7 +206,7 @@ function DrStrip({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   if (!open)
     return (
       <div className="flex shrink-0 gap-2">
-        <div className={cn('pointer-events-auto flex min-w-0 flex-1 items-center gap-5 rounded-xl px-3 py-2 text-[12px]', glass)}>
+        <div className={cn('surface-tile pointer-events-auto flex min-w-0 flex-1 items-center gap-5 px-3 py-2 text-[12px]')}>
           <Chip label="Need" value={need > 1 ? fmtMW(need) : 'none'} tone={f.severity === 'NORMAL' ? 'text-emerald-700' : 'text-amber-700'} />
           <Chip label="Available" value={fmtMW(c.available)} />
           <Chip label="Dispatched" value={fmtMW(c.dispatched)} />

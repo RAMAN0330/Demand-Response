@@ -18,6 +18,7 @@ export function PageHeader({ title, summary, actions, icon }: { title: string; s
 
 export function Panel({
   title,
+  icon,
   aside,
   children,
   className,
@@ -25,6 +26,8 @@ export function Panel({
   style,
 }: {
   title?: ReactNode
+  /** small leading glyph, so panel headers read the same way as KPI tiles */
+  icon?: ReactNode
   aside?: ReactNode
   children: ReactNode
   className?: string
@@ -32,17 +35,14 @@ export function Panel({
   style?: CSSProperties
 }) {
   return (
-    <section
-      style={style}
-      className={cn(
-        'flex min-h-0 flex-col rounded-2xl border border-white/70 bg-white/80 shadow-lg shadow-slate-900/[0.05] ring-1 ring-slate-900/[0.04] backdrop-blur-md',
-        className,
-      )}
-    >
+    <section style={style} className={cn('surface-panel flex min-h-0 flex-col', className)}>
       {(title || aside) && (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-          <h2 className="text-[13px] font-semibold text-slate-700">{title}</h2>
-          {aside}
+        <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b border-slate-900/[0.06] px-3 py-1.5">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-slate-700">
+            {icon && <span className="shrink-0 text-slate-400 [&_svg]:size-3.5">{icon}</span>}
+            <span className="truncate">{title}</span>
+          </h2>
+          {aside && <div className="flex shrink-0 items-center gap-1.5">{aside}</div>}
         </div>
       )}
       <div className={cn('min-h-0 flex-1 p-3', bodyClass)}>{children}</div>
@@ -116,8 +116,8 @@ export function Stat({
     <Comp
       onClick={onClick}
       className={cn(
-        'relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-xl border border-white/70 bg-white/85 py-2 pr-2.5 pl-3 text-left shadow-md shadow-slate-900/[0.04] ring-1 ring-slate-900/[0.04] backdrop-blur-md',
-        onClick && 'transition hover:-translate-y-px hover:shadow-lg',
+        'surface-tile relative flex min-w-0 flex-col gap-1 overflow-hidden py-2 pr-2.5 pl-3 text-left',
+        onClick && 'transition hover:-translate-y-px hover:shadow-[var(--shadow-float)]',
       )}
     >
       {/* status accent */}
@@ -178,7 +178,7 @@ export function KpiCard({
   onClick?: () => void
   children?: ReactNode
 }) {
-  const ring = tone === 'bad' ? 'border-rose-200 bg-rose-50/70' : tone === 'warn' ? 'border-amber-200 bg-amber-50/70' : 'border-white/70 bg-white/80'
+  const ring = tone === 'bad' ? 'border-rose-200 !bg-rose-50/80' : tone === 'warn' ? 'border-amber-200 !bg-amber-50/80' : ''
   const text = tone === 'bad' ? 'text-rose-600' : tone === 'warn' ? 'text-amber-700' : tone === 'good' ? 'text-emerald-700' : tone === 'info' ? 'text-sky-700' : 'text-slate-800'
   const bar = tone === 'bad' ? 'bg-rose-400' : tone === 'warn' ? 'bg-amber-400' : tone === 'good' ? 'bg-emerald-400' : 'bg-sky-400'
   return (
@@ -186,7 +186,7 @@ export function KpiCard({
       onClick={onClick}
       disabled={!onClick}
       className={cn(
-        'flex min-w-0 flex-col gap-1 rounded-xl border px-3 py-2 text-left shadow-md shadow-slate-900/[0.04] ring-1 ring-slate-900/[0.04] backdrop-blur-md transition enabled:hover:-translate-y-px enabled:hover:shadow-lg',
+        'surface-tile flex min-w-0 flex-col gap-1 px-3 py-2 text-left transition enabled:hover:-translate-y-px enabled:hover:shadow-[var(--shadow-float)]',
         ring,
         className,
       )}
@@ -218,6 +218,47 @@ export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNod
       <div className="flex flex-col items-center gap-2">
         {icon ?? <CircleCheck className="size-6 text-emerald-400" />}
         {children}
+      </div>
+    </div>
+  )
+}
+
+/** Empty state that teaches: what will appear here and how it is derived, laid out as numbered steps. */
+export function EmptyGuide({
+  icon,
+  title,
+  text,
+  steps,
+  action,
+}: {
+  icon: ReactNode
+  title: string
+  text: string
+  steps?: { k: string; title: string; text: string }[]
+  action?: ReactNode
+}) {
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <div className="flex w-full max-w-3xl flex-col items-center gap-4 text-center">
+        <div className="grid size-11 place-items-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100 [&_svg]:size-5">{icon}</div>
+        <div>
+          <div className="text-[14px] font-semibold text-slate-800">{title}</div>
+          <div className="mt-0.5 text-[12px] text-slate-500">{text}</div>
+        </div>
+        {steps && (
+          <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+            {steps.map((s) => (
+              <div key={s.k} className="surface-tile p-3 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="num grid size-6 place-items-center rounded-lg bg-slate-900/[0.04] text-[11px] font-bold text-slate-600">{s.k}</span>
+                  <span className="text-[12px] font-semibold text-slate-700">{s.title}</span>
+                </div>
+                <div className="mt-1.5 text-[11px] leading-snug text-slate-500">{s.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {action}
       </div>
     </div>
   )

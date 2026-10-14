@@ -1,7 +1,28 @@
 // DR Events — every event the platform opened: need, dispatch, delivery vs baseline, value. Approve / reject / abort with full evidence.
 import { useState } from 'react'
 import { Area, Bar as RBar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { AlertTriangle, Ban, Brain, MapPin, Check, CheckCircle2, Loader2, OctagonX, Receipt, Send, UserCheck, XCircle, Zap } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  Ban,
+  Brain,
+  Check,
+  CheckCircle2,
+  Crosshair,
+  Gauge,
+  IndianRupee,
+  ListChecks,
+  Loader2,
+  MapPin,
+  OctagonX,
+  Receipt,
+  Send,
+  Target,
+  Timer,
+  UserCheck,
+  XCircle,
+  Zap,
+} from 'lucide-react'
 import { Calc, FitPager, SectionTabs } from '@/components/common'
 import { Empty, Panel, Stat, StoryChain } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +37,7 @@ import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
 import { fmtMW, fmtRs } from '@/lib/geo'
 import { chartTooltip } from '@/lib/ui'
+import { fmtEnergy } from '@/lib/standards'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
 import { clock, clockS } from '@/store/useLive'
@@ -196,7 +218,7 @@ export function DecisionsPage() {
                           key={d.id}
                           onClick={() => go('decisions', d.id)}
                           className={cn(
-                            'w-full rounded-lg border px-2.5 py-1.5 text-left transition hover:bg-slate-50',
+                            'w-full rounded-xl border bg-white/60 px-2.5 py-1.5 text-left transition hover:bg-slate-50',
                             selected === d.id && 'border-sky-300 bg-sky-50/70 ring-1 ring-sky-200',
                           )}
                         >
@@ -922,27 +944,31 @@ function EventKpis({ d }: { d: Full }) {
   const mins = st ? st.duration_min : (o.minutes ?? 0)
   return (
     <div className="grid shrink-0 grid-cols-6 gap-2">
-      <Stat label="Target (grid need)" value={fmtMW(d.requirement_mw)} sub={d.direction === 'UP' ? 'load reduction' : 'load increase'} />
+      <Stat icon={<Crosshair />} label="Target (grid need)" value={fmtMW(d.requirement_mw)} sub={d.direction === 'UP' ? 'load reduction' : 'load increase'} />
       <Stat
+        icon={<Send />}
         label="Dispatched"
         value={fmtMW(d.planned_mw)}
         sub={`${d.auto_mw.toFixed(0)} MW auto · ${d.awaiting_mw.toFixed(0)} MW awaiting`}
         tone={d.awaiting_mw > 0.5 ? 'warn' : undefined}
       />
       <Stat
+        icon={<Activity />}
         label={st ? 'Energy delivered' : 'Delivering now'}
-        value={st ? `${st.delivered_mwh.toFixed(1)} MWh` : fmtMW(delivering)}
-        sub={st ? `of ${st.expected_mwh.toFixed(1)} MWh expected` : `of ${fmtMW(expected)} expected`}
+        value={st ? fmtEnergy(st.delivered_mwh) : fmtMW(delivering)}
+        sub={st ? `of ${fmtEnergy(st.expected_mwh)} expected` : `of ${fmtMW(expected)} expected`}
       />
       <Stat
+        icon={<Target />}
         label="Performance vs baseline"
         value={perf == null ? '—' : `${(perf * 100).toFixed(0)}%`}
         tone={perf == null ? undefined : perf >= 0.85 ? 'good' : 'warn'}
         sub="metered delivery / expected"
       />
-      <Stat label="Duration" value={`${mins.toFixed(0)} min`} sub={d.closed_at ? `closed ${clockS(d.closed_at)}` : `since ${clockS(d.opened_at)}`} />
+      <Stat icon={<Timer />} label="Duration" value={`${mins.toFixed(0)} min`} sub={d.closed_at ? `closed ${clockS(d.closed_at)}` : `since ${clockS(d.opened_at)}`} />
       <Stat
-        label={st ? 'Net benefit' : 'Penalties avoided so far'}
+        icon={<IndianRupee />}
+        label={st ? 'Net benefit' : 'DSM charges avoided so far'}
         value={fmtRs(st ? st.net_benefit_rs : (o.avoided_dsm_rs ?? 0))}
         sub={st ? `${fmtRs(st.avoided_dsm_rs)} avoided − ${fmtRs(st.payments_rs + (st.rebound_cost_rs ?? 0))} paid & rebound` : 'vs doing nothing'}
         tone="good"
@@ -975,31 +1001,30 @@ function TodaySummary({ items }: { items: DecisionSummary[] }) {
   const open = items.filter((d) => OPEN.includes(d.state))
   const waiting = items.filter((d) => d.state === 'AWAITING_APPROVAL').length
   const perf = rep && rep.expected_mwh > 0 ? rep.delivered_mwh / rep.expected_mwh : null
-  const cells = [
-    {
-      k: 'Open events',
-      v: String(open.length),
-      s: waiting ? `${waiting} awaiting approval` : open.length ? 'running' : 'none active',
-      tone: waiting ? 'text-amber-700' : 'text-slate-800',
-    },
-    { k: 'Settled', v: String(rep?.decisions ?? 0), s: `${items.length} events in log`, tone: 'text-slate-800' },
-    {
-      k: 'Energy delivered',
-      v: `${(rep?.delivered_mwh ?? 0).toFixed(1)} MWh`,
-      s: perf == null ? 'vs baseline' : `${(perf * 100).toFixed(0)}% of expected`,
-      tone: 'text-slate-800',
-    },
-    { k: 'Net benefit', v: fmtRs(rep?.net_benefit_rs ?? 0), s: 'after participant payments', tone: (rep?.net_benefit_rs ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-600' },
-  ]
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2">
-      {cells.map((c) => (
-        <div key={c.k} className="rounded-xl border bg-white px-2.5 py-1.5 shadow-xs">
-          <div className="text-[10px] text-slate-500">{c.k}</div>
-          <div className={cn('font-mono text-[14px] font-semibold tabular-nums', c.tone)}>{c.v}</div>
-          <div className="truncate text-[10px] text-slate-400">{c.s}</div>
-        </div>
-      ))}
+      <Stat
+        icon={<Zap />}
+        label="Open events"
+        value={String(open.length)}
+        sub={waiting ? `${waiting} awaiting approval` : open.length ? 'running' : 'none active'}
+        tone={waiting ? 'warn' : open.length ? 'info' : undefined}
+      />
+      <Stat icon={<ListChecks />} label="Settled" value={String(rep?.decisions ?? 0)} sub={`${items.length} events in log`} />
+      <Stat
+        icon={<Gauge />}
+        label="Energy delivered"
+        value={fmtEnergy(rep?.delivered_mwh ?? 0)}
+        sub={perf == null ? 'vs baseline' : `${(perf * 100).toFixed(0)}% of expected`}
+        tone={perf == null ? undefined : perf >= 0.85 ? 'good' : 'warn'}
+      />
+      <Stat
+        icon={<IndianRupee />}
+        label="Net benefit"
+        value={fmtRs(rep?.net_benefit_rs ?? 0)}
+        sub="after participant payments"
+        tone={(rep?.net_benefit_rs ?? 0) >= 0 ? 'good' : 'bad'}
+      />
     </div>
   )
 }

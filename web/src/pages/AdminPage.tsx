@@ -1,8 +1,8 @@
 // Administration — autonomy policy, data sources (incl. KPTCL SLDC pages), field simulator, DSM rules, users.
 import { useState, Fragment } from 'react'
-import { RefreshCw, Trash2, Zap } from 'lucide-react'
+import { Bot, Database, FlaskConical, Gauge, RefreshCw, ScrollText, ShieldCheck, Trash2, UserCheck, Zap } from 'lucide-react'
 import { FitPager, SectionTabs } from '@/components/common'
-import { Empty, Panel } from '@/components/page'
+import { Empty, Panel, Stat, StatStrip } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,12 +16,13 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { UsersAdmin } from '@/components/auth/UsersAdmin'
 import { useAuth } from '@/store/useAuth'
-import { clockS } from '@/store/useLive'
+import { clockS, useLive } from '@/store/useLive'
 
 export function AdminPage() {
   return (
     <div className="flex h-full flex-col gap-3">
-      <Panel className="flex-1" bodyClass="flex flex-col">
+      <AdminStats />
+      <Panel className="min-h-0 flex-1" bodyClass="flex flex-col">
         <SectionTabs
           sections={[
             { id: 'autonomy', label: 'Autonomy policy', content: <AutonomyTab /> },
@@ -33,6 +34,69 @@ export function AdminPage() {
         />
       </Panel>
     </div>
+  )
+}
+
+/** Configuration at a glance: what the platform is allowed to do right now, and on what data. */
+function AdminStats() {
+  const f = useLive((s) => s.frame)
+  const { data: pol } = useApi<Policy>('/autonomy', { intervalMs: 5000 })
+  const { data: src } = useApi<Source[]>('/admin/sources', { intervalMs: 10000 })
+  const { data: dist } = useApi<Dist[]>('/admin/simulator/disturbances', { intervalMs: 5000 })
+  const { data: dsm } = useApi<Record<string, unknown>>('/admin/config/dsm', { intervalMs: 30000 })
+  const k = src?.find((x) => x.kind === 'kptcl')
+  const active = dist?.filter((d) => d.active) ?? []
+  const illustrative = String(dsm?.source ?? '')
+    .toLowerCase()
+    .includes('illustrative')
+  const degraded = pol && pol.effective < pol.level
+  return (
+    <StatStrip>
+      <Stat
+        icon={<Bot />}
+        label="Autonomy in force"
+        value={pol ? (pol.suspended ? 'SUSPENDED' : `L${pol.effective} ${LEVELS[pol.effective].name.split(' ')[1]}`) : '—'}
+        delta={degraded ? { text: `↓ from L${pol!.level}`, tone: 'warn' } : undefined}
+        sub={pol?.suspended ? `by ${pol.suspended_by}` : pol?.reasons.length ? pol.reasons[0] : 'configured level, no degradation'}
+        tone={pol?.suspended ? 'bad' : degraded ? 'warn' : 'info'}
+      />
+      <Stat icon={<UserCheck />} label="Dual authorisation" value={pol ? `> ${pol.dual_auth_mw.toFixed(0)} MW` : '—'} sub="second approver: shift-in-charge" tone="info" />
+      <Stat
+        icon={<ShieldCheck />}
+        label="L2 auto envelope"
+        value={pol ? `≤ ${pol.envelope.max_auto_mw.toFixed(0)} MW` : '—'}
+        sub={pol ? pol.envelope.auto_types.join(' · ') || 'no types' : undefined}
+      />
+      <Stat
+        icon={<Gauge />}
+        label="Data confidence"
+        value={f ? `${(f.confidence * 100).toFixed(0)}%` : '—'}
+        meter={f?.confidence}
+        sub={pol ? `autonomy needs ≥ ${(pol.envelope.min_confidence * 100).toFixed(0)}%` : undefined}
+        tone={f && pol && f.confidence < pol.envelope.min_confidence ? 'warn' : 'good'}
+      />
+      <Stat
+        icon={<Database />}
+        label="Data sources"
+        value={k ? `${k.pages_ok}/${k.pages_total} pages` : 'Simulated field'}
+        sub={k ? `${k.channels_live} live 220 kV channels` : 'SCADA/EMS stand-in · advisory only'}
+        tone={k ? (k.pages_ok === k.pages_total ? 'good' : 'warn') : undefined}
+      />
+      <Stat
+        icon={<FlaskConical />}
+        label="Active drills"
+        value={String(active.length)}
+        sub={active.length ? active.map((d) => d.label).join(' · ') : `clock ×${f?.time_scale ?? 1}`}
+        tone={active.length ? 'warn' : undefined}
+      />
+      <Stat
+        icon={<ScrollText />}
+        label="DSM rule table"
+        value={!dsm ? '—' : illustrative ? 'Illustrative' : `v ${String(dsm.version ?? '—')}`}
+        sub={illustrative ? 'structure only · load the notified table' : `effective ${String(dsm?.effective_from ?? '—')}`}
+        tone={illustrative ? 'warn' : 'good'}
+      />
+    </StatStrip>
   )
 }
 
@@ -82,7 +146,7 @@ function AutonomyTab() {
   const setEnv = (patch: Partial<Policy['envelope']>) => setDraft({ ...draft, envelope: { ...env, ...patch } })
   return (
     <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
-      <div className="space-y-3">
+      <div className="flex min-h-0 flex-col gap-3">
         <div className="text-xs text-slate-500">
           Configured <b>L{data?.level}</b> · effective <b>L{data?.effective}</b>
           {data?.reasons.length ? <span className="text-amber-700"> — {data.reasons.join('; ')}</span> : ' — no degradations'}
@@ -120,69 +184,161 @@ function AutonomyTab() {
           </Button>
           {msg && <span className="text-xs text-slate-500">{msg}</span>}
         </div>
+        <PolicyInForce p={draft} />
       </div>
-      <div className="space-y-3 rounded-xl border bg-slate-50/50 p-3">
-        <div className="text-[13px] font-semibold">
-          L2 safety envelope {!envEditable && <span className="text-[11px] font-normal text-slate-500">(requires engineer/admin)</span>}
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Resource types allowed to act without approval</Label>
-          <div className="flex flex-wrap gap-1">
-            {TYPES.map((t) => {
-              const on = env.auto_types.includes(t)
-              return (
-                <button
-                  key={t}
-                  disabled={!envEditable}
-                  onClick={() => setEnv({ auto_types: on ? env.auto_types.filter((x) => x !== t) : [...env.auto_types, t] })}
-                  className={cn(
-                    'rounded-full border px-2.5 py-0.5 text-[11px] disabled:cursor-not-allowed',
-                    on ? 'border-sky-300 bg-sky-100 text-sky-800' : 'bg-white text-slate-500',
-                  )}
-                >
-                  {t}
-                </button>
-              )
-            })}
+      <div className="flex min-h-0 flex-col gap-3">
+        <div className="space-y-4 rounded-2xl border bg-slate-50/50 p-4">
+          <div className="text-[13px] font-semibold">
+            L2 safety envelope {!envEditable && <span className="text-[11px] font-normal text-slate-500">(requires engineer/admin)</span>}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Resource types allowed to act without approval</Label>
+            <div className="flex flex-wrap gap-1">
+              {TYPES.map((t) => {
+                const on = env.auto_types.includes(t)
+                return (
+                  <button
+                    key={t}
+                    disabled={!envEditable}
+                    onClick={() => setEnv({ auto_types: on ? env.auto_types.filter((x) => x !== t) : [...env.auto_types, t] })}
+                    className={cn(
+                      'rounded-full border px-2.5 py-0.5 text-[11px] disabled:cursor-not-allowed',
+                      on ? 'border-sky-300 bg-sky-100 text-sky-800' : 'bg-white text-slate-500',
+                    )}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <Label className="text-xs">Max automatic MW</Label>
+              <span className="font-mono">{env.max_auto_mw.toFixed(0)} MW</span>
+            </div>
+            <Slider disabled={!envEditable} value={[env.max_auto_mw]} min={0} max={1000} step={10} onValueChange={([v]) => setEnv({ max_auto_mw: v })} />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <Label className="text-xs">Minimum data confidence for autonomy</Label>
+              <span className="font-mono">{(env.min_confidence * 100).toFixed(0)}%</span>
+            </div>
+            <Slider disabled={!envEditable} value={[env.min_confidence]} min={0.5} max={0.99} step={0.01} onValueChange={([v]) => setEnv({ min_confidence: v })} />
+            <div className="text-[10px] text-slate-500">Below this, the system automatically degrades to L1 Advisory until data quality recovers.</div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Severities where automatic action is allowed</Label>
+            <div className="flex gap-1">
+              {['NORMAL', 'ALERT', 'EMERGENCY'].map((s) => {
+                const on = env.allowed_severity.includes(s)
+                return (
+                  <button
+                    key={s}
+                    disabled={!envEditable}
+                    onClick={() => setEnv({ allowed_severity: on ? env.allowed_severity.filter((x) => x !== s) : [...env.allowed_severity, s] })}
+                    className={cn(
+                      'rounded-full border px-2.5 py-0.5 text-[11px] disabled:cursor-not-allowed',
+                      on ? 'border-sky-300 bg-sky-100 text-sky-800' : 'bg-white text-slate-500',
+                    )}
+                  >
+                    {s}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs">
-            <Label className="text-xs">Max automatic MW</Label>
-            <span className="font-mono">{env.max_auto_mw.toFixed(0)} MW</span>
-          </div>
-          <Slider disabled={!envEditable} value={[env.max_auto_mw]} min={0} max={1000} step={10} onValueChange={([v]) => setEnv({ max_auto_mw: v })} />
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs">
-            <Label className="text-xs">Minimum data confidence for autonomy</Label>
-            <span className="font-mono">{(env.min_confidence * 100).toFixed(0)}%</span>
-          </div>
-          <Slider disabled={!envEditable} value={[env.min_confidence]} min={0.5} max={0.99} step={0.01} onValueChange={([v]) => setEnv({ min_confidence: v })} />
-          <div className="text-[10px] text-slate-500">Below this, the system automatically degrades to L1 Advisory until data quality recovers.</div>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Severities where automatic action is allowed</Label>
-          <div className="flex gap-1">
-            {['NORMAL', 'ALERT', 'EMERGENCY'].map((s) => {
-              const on = env.allowed_severity.includes(s)
-              return (
-                <button
-                  key={s}
-                  disabled={!envEditable}
-                  onClick={() => setEnv({ allowed_severity: on ? env.allowed_severity.filter((x) => x !== s) : [...env.allowed_severity, s] })}
-                  className={cn(
-                    'rounded-full border px-2.5 py-0.5 text-[11px] disabled:cursor-not-allowed',
-                    on ? 'border-sky-300 bg-sky-100 text-sky-800' : 'bg-white text-slate-500',
-                  )}
-                >
-                  {s}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <AuthorityMatrix />
       </div>
+    </div>
+  )
+}
+
+/** The policy as it will behave, in one paragraph an auditor can read. */
+function PolicyInForce({ p }: { p: Policy }) {
+  const env = p.envelope
+  const lvl = LEVELS[p.level]
+  const lines =
+    p.level === 0
+      ? ['The platform detects, assesses and forecasts only. No DR plans are proposed or dispatched.']
+      : p.level === 1
+        ? ['Every plan is proposed to the operator; nothing is dispatched without approval.']
+        : p.level === 2
+          ? [
+              `${env.auto_types.length ? env.auto_types.join(', ') : 'No resource types'} may be dispatched automatically up to ${env.max_auto_mw.toFixed(0)} MW, during ${env.allowed_severity.join(' / ').toLowerCase() || 'no'} grid conditions.`,
+              'Everything outside that envelope waits for operator approval.',
+            ]
+          : ['All plans execute automatically; operators supervise and may abort any decision.']
+  return (
+    <div className="flex-1 rounded-2xl border bg-white/60 p-3 text-[12px] leading-relaxed text-slate-600">
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-[13px] font-semibold text-slate-800">Policy in force — {lvl.name}</span>
+        <span className="text-[10px] text-slate-400">draft shown until saved</span>
+      </div>
+      <ul className="list-disc space-y-1 pl-4">
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+        <li>Plans whose peak exceeds {p.dual_auth_mw.toFixed(0)} MW need two approvers, one with shift-in-charge authority.</li>
+        <li>If data confidence falls below {(env.min_confidence * 100).toFixed(0)}% or any hard safety veto is active, autonomy drops to L1 Advisory until data recovers.</li>
+        <li>Load rotation is never autonomous: every order needs shift-in-charge approval. UFR and df/dt protection act independently.</li>
+      </ul>
+    </div>
+  )
+}
+
+const AUTHORITY: { action: string; perm: string }[] = [
+  { action: 'Acknowledge alarms', perm: 'ack_alarm' },
+  { action: 'Shelve alarms', perm: 'shelve_alarm' },
+  { action: 'Approve DR dispatch', perm: 'approve' },
+  { action: 'Second (dual) approval', perm: 'approve_dual' },
+  { action: 'Propose load rotation', perm: 'shed_propose' },
+  { action: 'Approve load rotation', perm: 'shed' },
+  { action: 'Suspend / resume autonomy', perm: 'autonomy' },
+  { action: 'Change envelope, DSM table', perm: 'config' },
+  { action: 'Inject simulator drills', perm: 'simulator' },
+  { action: 'Manage users', perm: 'users' },
+]
+
+/** Who may do what: the role permissions the API enforces, read from the server (never hard-coded here). */
+function AuthorityMatrix() {
+  const can = useAuth((s) => s.can)
+  const { data } = useApi<{ role: string; label: string; permissions: string[] }[]>(can('users') ? '/admin/roles' : null)
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border bg-white/60 p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-[13px] font-semibold">Delegation of authority</span>
+        <span className="text-[10px] text-slate-400">enforced by the API on every request</span>
+      </div>
+      {!data ? (
+        <div className="text-[11px] text-slate-500">Visible to administrators.</div>
+      ) : (
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="pb-1 text-left font-medium">Action</th>
+              {data.map((r) => (
+                <th key={r.role} className="pb-1 text-center font-medium">
+                  {r.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {AUTHORITY.map((a) => (
+              <tr key={a.perm} className="border-t border-slate-900/[0.05]">
+                <td className="py-[3px] text-slate-700">{a.action}</td>
+                {data.map((r) => (
+                  <td key={r.role} className="text-center">
+                    {r.permissions.includes(a.perm) ? <span className="text-emerald-600">●</span> : <span className="text-slate-300">·</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

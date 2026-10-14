@@ -189,7 +189,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
   const toggle = useUI((s) => s.toggleLayer)
   return (
     <div className={cn('absolute top-2.5 left-2.5 flex flex-col gap-1.5', className)}>
-      <div className="flex flex-wrap gap-0.5 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-900/10 backdrop-blur">
+      <div className="flex flex-wrap gap-0.5 surface-chip p-1">
         <MapIcon className="mx-1 size-3.5 self-center text-sky-600" />
         {CAMS.map((c) => (
           <button
@@ -204,7 +204,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
           </button>
         ))}
       </div>
-      <div className={cn('flex gap-0.5 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-900/10 backdrop-blur', compact && 'flex-wrap')}>
+      <div className={cn('flex gap-0.5 surface-chip p-1', compact && 'flex-wrap')}>
         {LAYER_DEFS.map(({ k, label, icon: Icon }) => (
           <Tooltip key={k}>
             <TooltipTrigger asChild>
@@ -227,12 +227,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
 function Legend({ frame, className }: { frame: Frame; className?: string }) {
   const live = Object.values(frame.channels).filter((c) => c.src === 'KPTCL').length
   return (
-    <div
-      className={cn(
-        'pointer-events-none absolute bottom-2.5 left-2.5 rounded-lg bg-white/90 p-2 text-[10px] text-slate-600 shadow-sm ring-1 ring-slate-900/10 backdrop-blur',
-        className,
-      )}
-    >
+    <div className={cn('surface-chip pointer-events-none absolute bottom-2.5 left-2.5 p-2 text-[10px] text-slate-600', className)}>
       <div className="flex gap-2">
         {[
           ['<75%', 0.5],
@@ -421,12 +416,7 @@ const AnchoredCard = ({
       className={cn('absolute top-0 left-0 z-20 opacity-0 transition-opacity duration-150 will-change-transform', hover ? 'pointer-events-none w-56' : 'w-72', !d && 'invisible')}
     >
       {d && sel && (
-        <div
-          className={cn(
-            'relative rounded-xl border border-white/70 bg-white/85 p-3 text-xs shadow-xl shadow-slate-900/10 ring-1 backdrop-blur-md',
-            hover ? 'ring-slate-900/10' : 'ring-sky-300/70',
-          )}
-        >
+        <div className={cn('surface-panel relative p-3 text-xs', !hover && '!border-sky-300/80')}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="truncate text-[13px] font-semibold text-slate-800">{d.title}</div>

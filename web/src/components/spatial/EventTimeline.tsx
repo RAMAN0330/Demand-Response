@@ -8,7 +8,6 @@ import { fmtMW } from '@/lib/geo'
 import { cn } from '@/lib/utils'
 import { clockS } from '@/store/useLive'
 import { useUI } from '@/store/useUI'
-import { glass } from './Glass'
 import type { Marker, Playback } from './useEventPlayback'
 
 const MARK: Record<Marker['kind'], { icon: typeof Zap; cls: string }> = {
@@ -53,7 +52,7 @@ export function EventTimeline({ pb, onClose }: { pb: Playback; onClose: () => vo
   const rows = detail.timeline ?? []
   const pct = ((at - start) / span) * 100
   return (
-    <div className={cn('pointer-events-auto flex items-stretch gap-3 rounded-2xl px-3 py-2', glass)}>
+    <div className={cn('surface-panel pointer-events-auto flex items-stretch gap-3 px-3 py-2')}>
       <div className="flex w-[200px] shrink-0 flex-col justify-between">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[12.5px] font-semibold text-slate-700">Event {detail.id}</span>

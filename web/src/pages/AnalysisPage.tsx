@@ -1,10 +1,12 @@
 // Forecast & Analysis — what will happen (P10–P90), predicted violations, recent behaviour, forecast accuracy.
 import { Area, CartesianGrid, ComposedChart, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { Activity, Cable, Clock3, Crosshair, IndianRupee, Sun, Target, TriangleAlert } from 'lucide-react'
+import { Activity, Cable, Clock3, Crosshair, IndianRupee, ShieldCheck, Sun, Target, TriangleAlert } from 'lucide-react'
 import { Panel, Stat, StatStrip } from '@/components/page'
 import { useApi } from '@/hooks'
 import { fmtMW, fmtRs } from '@/lib/geo'
+import { bandStats, IEGC } from '@/lib/standards'
 import { chartTooltip, signed } from '@/lib/ui'
+import { cn } from '@/lib/utils'
 import { useLive } from '@/store/useLive'
 import type { ForecastT } from './CommandCenter'
 
@@ -115,21 +117,24 @@ export function AnalysisPage() {
             </ComposedChart>
           </ResponsiveContainer>
         </Panel>
-        <Panel title="Predicted violations — next 2 h">
-          <div className="h-full space-y-1.5 overflow-hidden">
+        <Panel title="Predicted violations — next 2 h" icon={<TriangleAlert />} bodyClass="flex flex-col gap-3">
+          <div className="min-h-0 flex-1 space-y-1.5 overflow-hidden">
             {(fc?.violations ?? []).length === 0 ? (
-              <div className="text-xs text-emerald-700">No predicted constraint or balance violations within 2 hours.</div>
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50/80 px-2.5 py-2 text-xs text-emerald-800">
+                <ShieldCheck className="size-4 shrink-0" /> No predicted constraint or balance violations within 2 hours.
+              </div>
             ) : (
-              fc!.violations.slice(0, 8).map((v, i) => (
+              fc!.violations.slice(0, 6).map((v, i) => (
                 <div key={i} className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12px]">
                   <Clock3 className="size-3.5 shrink-0 text-amber-600" />
-                  <span className="w-12 font-mono text-amber-700">+{v.lead_min}m</span>
+                  <span className="num w-14 shrink-0 whitespace-nowrap text-amber-700">+{v.lead_min} min</span>
                   <span className="flex-1 truncate">{v.label}</span>
-                  {v.loading && <span className="font-mono text-rose-600">{(v.loading * 100).toFixed(0)}%</span>}
+                  {v.loading && <span className="num text-rose-600">{(v.loading * 100).toFixed(0)}%</span>}
                 </div>
               ))
             )}
           </div>
+          <FrequencyCompliance samples={t.map((p) => p.frequency)} />
         </Panel>
         <Panel title="Demand & renewables forecast (MW)">
           <ResponsiveContainer width="100%" height="100%">
@@ -189,6 +194,61 @@ export function AnalysisPage() {
             </LineChart>
           </ResponsiveContainer>
         </Panel>
+      </div>
+    </div>
+  )
+}
+
+/** Time inside the IEGC 2023 operating frequency band over the recent window, plus mean and spread. */
+function FrequencyCompliance({ samples }: { samples: number[] }) {
+  const b = bandStats(samples)
+  const seg = [
+    { v: b.belowPct, cls: 'bg-rose-400', label: `below ${IEGC.fLow.toFixed(2)} Hz` },
+    { v: b.inPct, cls: 'bg-emerald-500', label: 'in band' },
+    { v: b.abovePct, cls: 'bg-amber-400', label: `above ${IEGC.fHigh.toFixed(2)} Hz` },
+  ]
+  return (
+    <div className="shrink-0 rounded-xl bg-slate-50/80 p-2.5 ring-1 ring-slate-900/[0.05]">
+      <div className="flex items-baseline justify-between">
+        <span className="eyebrow">Frequency band compliance</span>
+        <span className="text-[10px] text-slate-400">
+          IEGC 2023 band {IEGC.fLow.toFixed(2)}–{IEGC.fHigh.toFixed(2)} Hz · {samples.length} samples
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-end gap-4">
+        <div>
+          <div className={cn('num text-xl leading-none font-semibold', b.inPct >= 95 ? 'text-emerald-700' : b.inPct >= 80 ? 'text-amber-700' : 'text-rose-600')}>
+            {b.inPct.toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-slate-500">of time in band</div>
+        </div>
+        <div className="grid flex-1 grid-cols-3 gap-2 text-[10.5px]">
+          <div>
+            <div className="text-slate-500">Mean</div>
+            <div className="num font-semibold text-slate-700">{b.mean.toFixed(3)} Hz</div>
+          </div>
+          <div>
+            <div className="text-slate-500">Std deviation</div>
+            <div className="num font-semibold text-slate-700">{(b.std * 1000).toFixed(1)} mHz</div>
+          </div>
+          <div>
+            <div className="text-slate-500">Min · max</div>
+            <div className="num font-semibold text-slate-700">
+              {b.min.toFixed(2)} · {b.max.toFixed(2)}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 flex h-1.5 w-full gap-px overflow-hidden rounded-full bg-slate-200">
+        {seg
+          .filter((x) => x.v > 0)
+          .map((x) => (
+            <div key={x.label} title={`${x.label}: ${x.v.toFixed(1)}%`} className={cn('h-full', x.cls)} style={{ width: `${x.v}%` }} />
+          ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+        <span>below {b.belowPct.toFixed(1)}%</span>
+        <span>above {b.abovePct.toFixed(1)}%</span>
       </div>
     </div>
   )
