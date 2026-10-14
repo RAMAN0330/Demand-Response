@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { worldOf } from '@/lib/spatial'
 
-export type Page = 'command' | 'operations' | 'decisions' | 'shedding' | 'alarms' | 'analysis' | 'whatif' | 'resources' | 'reports' | 'admin'
+export type Page = 'command' | 'operations' | 'decisions' | 'shedding' | 'alarms' | 'analysis' | 'whatif' | 'simulator' | 'resources' | 'reports' | 'admin'
 
 export type CameraPreset = 'STATE' | 'BENGALURU' | 'NORTH' | 'COAST' | 'TILT'
 

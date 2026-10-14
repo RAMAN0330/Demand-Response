@@ -1,6 +1,6 @@
 // Alarms & events — prioritised, correlated into incidents; acknowledge and shelve with reasons.
 import { useState } from 'react'
-import { Archive, BellDot, BellRing, Check, CheckCheck, Hourglass, Layers, ShieldCheck, Siren } from 'lucide-react'
+import { Activity, Archive, BellDot, BellRing, Check, CheckCheck, Hourglass, Layers, ShieldCheck, Siren } from 'lucide-react'
 import { FitPager } from '@/components/common'
 import { Empty, Panel, Prio, Stat, StatStrip } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import type { Alarm } from '@/data/types'
 import { useApi } from '@/hooks'
+import { ALARM_BENCH, alarmKpi, rateVerdict } from '@/lib/alarmKpi'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
@@ -36,6 +37,7 @@ export function AlarmsPage() {
   const { data, reload } = useApi<{ items: Alarm[]; total: number; incidents: Incident[] }>(`/alarms?status=${status}&limit=500`, { intervalMs: 4000 })
   const { data: act } = useApi<{ items: Alarm[]; total: number; incidents: Incident[] }>('/alarms?status=active&limit=500', { intervalMs: 4000 })
   const { data: shelf } = useApi<{ items: Alarm[]; total: number }>('/alarms?status=shelved&limit=500', { intervalMs: 8000 })
+  const { data: hist } = useApi<{ items: Alarm[]; total: number }>('/alarms?status=all&limit=500', { intervalMs: 10000 })
   const trend = useLive((s) => s.trend)
   const can = useAuth((s) => s.can)
   const f = useLive((s) => s.frame)
@@ -144,7 +146,7 @@ export function AlarmsPage() {
           bodyClass="p-1.5"
         >
           {items.length === 0 ? (
-            <Empty>No alarms in this view.</Empty>
+            <Empty>{status === 'active' ? 'No standing alarms. The grid is inside every configured limit.' : 'No alarms in this view.'}</Empty>
           ) : (
             <FitPager
               items={items}
@@ -198,41 +200,44 @@ export function AlarmsPage() {
             />
           )}
         </Panel>
-        <Panel title="Incidents (correlated alarms)" bodyClass="p-1.5">
-          {incidents.length === 0 ? (
-            <Empty>No incidents.</Empty>
-          ) : (
-            <FitPager
-              items={incidents}
-              rowHeight={58}
-              reserve={36}
-              render={(slice) => (
-                <div className="space-y-1">
-                  {slice.map((i) => (
-                    <div key={i.id} className={cn('rounded-lg border px-2.5 py-1.5', !i.closed_at && 'border-l-2 border-l-amber-400')}>
-                      <div className="flex items-center gap-1.5">
-                        <Prio p={i.priority} />
-                        <span className="font-mono text-[10px] text-slate-500">{i.id}</span>
-                        <Badge variant={i.closed_at ? 'secondary' : 'warning'} className="ml-auto">
-                          {i.closed_at ? 'closed' : 'open'}
-                        </Badge>
+        <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+          <AlarmPerformance alarms={hist?.items ?? []} now={now} />
+          <Panel title="Incidents (correlated alarms)" icon={<Layers />} bodyClass="p-1.5">
+            {incidents.length === 0 ? (
+              <Empty>No incidents.</Empty>
+            ) : (
+              <FitPager
+                items={incidents}
+                rowHeight={58}
+                reserve={36}
+                render={(slice) => (
+                  <div className="space-y-1">
+                    {slice.map((i) => (
+                      <div key={i.id} className={cn('rounded-lg border px-2.5 py-1.5', !i.closed_at && 'border-l-2 border-l-amber-400')}>
+                        <div className="flex items-center gap-1.5">
+                          <Prio p={i.priority} />
+                          <span className="font-mono text-[10px] text-slate-500">{i.id}</span>
+                          <Badge variant={i.closed_at ? 'secondary' : 'warning'} className="ml-auto">
+                            {i.closed_at ? 'closed' : 'open'}
+                          </Badge>
+                        </div>
+                        <div className="mt-0.5 truncate text-[12px] font-medium">{i.title}</div>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                          {clockS(i.opened_at)} · {i.alarm_ids.length} alarm(s)
+                          {i.decision_id && (
+                            <button className="text-sky-700 hover:underline" onClick={() => go('decisions', i.decision_id)}>
+                              → decision {i.decision_id}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-0.5 truncate text-[12px] font-medium">{i.title}</div>
-                      <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                        {clockS(i.opened_at)} · {i.alarm_ids.length} alarm(s)
-                        {i.decision_id && (
-                          <button className="text-sky-700 hover:underline" onClick={() => go('decisions', i.decision_id)}>
-                            → decision {i.decision_id}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            />
-          )}
-        </Panel>
+                    ))}
+                  </div>
+                )}
+              />
+            )}
+          </Panel>
+        </div>
       </div>
       <Dialog open={!!shelve} onOpenChange={(o) => !o && setShelve(null)}>
         <DialogContent>
@@ -259,6 +264,91 @@ export function AlarmsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** ISA-18.2 / EEMUA 191 alarm-system health: rate per 10 min against the benchmark, floods, chattering and bad actors. */
+function AlarmPerformance({ alarms, now }: { alarms: Alarm[]; now: number }) {
+  const k = alarmKpi(alarms, now)
+  const v = rateVerdict(k.avgPer10)
+  const top = Math.max(ALARM_BENCH.flood, k.peakPer10)
+  const tone = { good: 'text-emerald-700', warn: 'text-amber-700', bad: 'text-rose-600' }[v.tone]
+  return (
+    <Panel
+      title="Alarm system performance"
+      icon={<Activity />}
+      aside={<span className="text-[10.5px] text-slate-400">ISA-18.2 · EEMUA 191 · last 2 h</span>}
+      bodyClass="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-3"
+    >
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <Metric label="Avg / 10 min" value={k.avgPer10.toFixed(1)} cls={tone} sub={v.label} />
+          <Metric
+            label="Peak / 10 min"
+            value={String(k.peakPer10)}
+            cls={k.peakPer10 >= ALARM_BENCH.flood ? 'text-rose-600' : 'text-slate-800'}
+            sub={`flood ≥ ${ALARM_BENCH.flood}`}
+          />
+          <Metric
+            label="Chattering"
+            value={String(k.chattering.length)}
+            cls={k.chattering.length ? 'text-amber-700' : 'text-slate-800'}
+            sub={`≥ ${ALARM_BENCH.chatter} in 10 min`}
+          />
+        </div>
+        {/* 10-min alarm-rate histogram with the benchmark lines */}
+        <div className="relative h-16">
+          <div className="absolute inset-x-0 border-t border-dashed border-amber-400/70" style={{ bottom: `${(ALARM_BENCH.manageable / top) * 100}%` }} />
+          <div className="absolute inset-x-0 border-t border-dashed border-rose-400/70" style={{ bottom: `${(ALARM_BENCH.flood / top) * 100}%` }} />
+          <div className="relative flex h-full items-end gap-1">
+            {k.buckets.map((b, i) => (
+              <div
+                key={i}
+                title={`${clockS(k.bucketStart[i])}: ${b} alarm(s)`}
+                className={cn('min-h-px flex-1 rounded-t-sm', b >= ALARM_BENCH.flood ? 'bg-rose-400' : b > ALARM_BENCH.manageable ? 'bg-amber-400' : 'bg-sky-400/80')}
+                style={{ height: `${(b / top) * 100}%` }}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-between text-[10px] text-slate-400">
+          <span className="num">{k.bucketStart.length ? clockS(k.bucketStart[0]) : ''}</span>
+          <span>
+            <span className="text-amber-600">┄</span> manageable {ALARM_BENCH.manageable} · <span className="text-rose-600">┄</span> flood {ALARM_BENCH.flood}
+          </span>
+          <span>now</span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <div className="eyebrow mb-1">Most frequent sources</div>
+        {k.badActors.length === 0 ? (
+          <div className="text-[11px] text-slate-500">No alarms raised in the window.</div>
+        ) : (
+          <ol className="space-y-1">
+            {k.badActors.map((b) => (
+              <li key={b.key} className="flex items-center gap-2 text-[11px]">
+                <span className="min-w-0 flex-1 truncate text-slate-700" title={b.title}>
+                  {b.title}
+                </span>
+                {k.chattering.includes(b.key) && <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-800">chatter</span>}
+                <span className="num w-6 text-right text-slate-500">{b.n}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="mt-1.5 text-[10px] text-slate-400">{k.standing} standing (active &gt; 24 h)</div>
+      </div>
+    </Panel>
+  )
+}
+
+function Metric({ label, value, sub, cls }: { label: string; value: string; sub: string; cls?: string }) {
+  return (
+    <div className="rounded-lg bg-slate-50/80 px-2 py-1 ring-1 ring-slate-900/[0.05]">
+      <div className="truncate text-[10px] text-slate-500">{label}</div>
+      <div className={cn('num text-[15px] leading-tight font-semibold', cls)}>{value}</div>
+      <div className="truncate text-[9.5px] text-slate-400">{sub}</div>
     </div>
   )
 }

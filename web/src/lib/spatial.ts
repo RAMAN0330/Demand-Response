@@ -1,5 +1,5 @@
 // Spatial model shared by the map workspace: where things are, what a selection touches, and how alarms map to places.
-import { ASSETS, BUS_BY_ID, GEN_STATIONS, GENERATORS, LINES, LOAD_CHANNELS, lineLabel } from '@/data/topology'
+import { ASSETS, BUS_BY_ID, GENERATORS, LINES, lineLabel, ASSET_BY_ID, LINE_BY_ID, GEN_BY_ID, CHANNEL_BY_ID, STATION_BY_ID } from '@/data/topology'
 import type { Alarm } from '@/data/types'
 import { project } from '@/lib/geo'
 import type { Selection } from '@/store/useUI'
@@ -18,23 +18,23 @@ export function worldOf(sel: Sel, eventAssets: string[] = []): { x: number; z: n
       return b ? at(b.lon, b.lat, 3.8) : null
     }
     case 'asset': {
-      const a = ASSETS.find((x) => x.id === sel.id)
+      const a = ASSET_BY_ID[sel.id]
       return a ? at(a.lon, a.lat, 3.6) : null
     }
     case 'gen': {
-      const g = GENERATORS.find((x) => x.id === sel.id)
+      const g = GEN_BY_ID[sel.id]
       return g ? at(g.lon, g.lat, 3) : null
     }
     case 'channel': {
-      const c = LOAD_CHANNELS.find((x) => x.id === sel.id)
+      const c = CHANNEL_BY_ID[sel.id]
       return c ? at(c.lon, c.lat, 3.2) : null
     }
     case 'station': {
-      const g = GEN_STATIONS.find((x) => x.id === sel.id)
+      const g = STATION_BY_ID[sel.id]
       return g ? at(g.lon, g.lat, 2.8) : null
     }
     case 'line': {
-      const l = LINES.find((x) => x.id === sel.id)
+      const l = LINE_BY_ID[sel.id]
       const a = l && BUS_BY_ID[l.from]
       const b = l && BUS_BY_ID[l.to]
       if (!a || !b) return null
@@ -44,7 +44,7 @@ export function worldOf(sel: Sel, eventAssets: string[] = []): { x: number; z: n
     }
     case 'event': {
       // centroid of the event's participants; spread decides how far back the camera sits
-      const pts = eventAssets.map((id) => ASSETS.find((x) => x.id === id)).filter((a): a is NonNullable<typeof a> => !!a && a.type !== 'generation')
+      const pts = eventAssets.map((id) => ASSET_BY_ID[id]).filter((a): a is NonNullable<typeof a> => !!a && a.type !== 'generation')
       const use = pts.length ? pts : ASSETS.filter((a) => a.type !== 'generation')
       const xy = use.map((a) => project(a.lon, a.lat))
       const x = xy.reduce((s, p) => s + p[0], 0) / xy.length
@@ -62,22 +62,22 @@ export function affected(sel: Sel, eventAssets: string[] = [], eventLines: strin
   const linesAt = (bus: string) => LINES.filter((l) => l.from === bus || l.to === bus).map((l) => l.id)
   switch (sel.kind) {
     case 'line': {
-      const l = LINES.find((x) => x.id === sel.id)
+      const l = LINE_BY_ID[sel.id]
       return l ? { lines: [l.id], assets: atBuses([l.from, l.to]) } : { lines: [], assets: [] }
     }
     case 'bus':
       return { lines: linesAt(sel.id), assets: atBuses([sel.id]) }
     case 'asset': {
-      const a = ASSETS.find((x) => x.id === sel.id)
+      const a = ASSET_BY_ID[sel.id]
       return a ? { lines: linesAt(a.bus), assets: [a.id] } : { lines: [], assets: [] }
     }
     case 'channel': {
-      const c = LOAD_CHANNELS.find((x) => x.id === sel.id)
+      const c = CHANNEL_BY_ID[sel.id]
       return c ? { lines: linesAt(c.parent_bus), assets: atBuses([c.parent_bus]) } : { lines: [], assets: [] }
     }
     case 'gen':
     case 'station': {
-      const g = sel.kind === 'gen' ? GENERATORS.find((x) => x.id === sel.id) : GENERATORS.find((x) => x.id === GEN_STATIONS.find((s) => s.id === sel.id)?.model_gen)
+      const g = sel.kind === 'gen' ? GEN_BY_ID[sel.id] : GEN_BY_ID[STATION_BY_ID[sel.id]?.model_gen ?? '']
       return g ? { lines: linesAt(g.bus), assets: [] } : { lines: [], assets: [] }
     }
     case 'event':
@@ -108,13 +108,13 @@ export function selectionLabel(sel: Sel): string {
     case 'bus':
       return BUS_BY_ID[sel.id]?.name ?? sel.id
     case 'asset':
-      return ASSETS.find((x) => x.id === sel.id)?.short ?? sel.id
+      return ASSET_BY_ID[sel.id]?.short ?? sel.id
     case 'gen':
-      return GENERATORS.find((x) => x.id === sel.id)?.name ?? sel.id
+      return GEN_BY_ID[sel.id]?.name ?? sel.id
     case 'channel':
-      return LOAD_CHANNELS.find((x) => x.id === sel.id)?.name ?? sel.id
+      return CHANNEL_BY_ID[sel.id]?.name ?? sel.id
     case 'station':
-      return GEN_STATIONS.find((x) => x.id === sel.id)?.name ?? sel.id
+      return STATION_BY_ID[sel.id]?.name ?? sel.id
     case 'event':
       return `DR event ${sel.id}`
   }

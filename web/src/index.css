@@ -7,6 +7,10 @@
    sky = brand (navy-azure) · slate = neutrals (steel) · emerald = good · amber = warning · rose/red = critical
    · violet = secondary accent. Status colours are reserved for meaning (ISA-101 high-performance HMI). */
 @theme {
+  /* Elevation scale for floating surfaces: one shadow per level, so every card floats the same way. */
+  --shadow-float-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px -4px rgb(15 23 42 / 0.07);
+  --shadow-float: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 28px -10px rgb(15 23 42 / 0.12);
+  --shadow-float-lg: 0 2px 4px rgb(15 23 42 / 0.05), 0 22px 48px -16px rgb(15 23 42 / 0.22);
   --color-brand-50: #eef4fa;
   --color-brand-100: #dbe7f4;
   --color-brand-200: #b7cfe9;
@@ -258,4 +262,71 @@
     auto,
     40px 40px,
     40px 40px;
+}
+
+/* ── Floating surfaces ────────────────────────────────────────────────────────────────────────────────
+   Every card, panel, KPI tile, map control and anchored card is one of three surfaces, so radius, border,
+   translucency and elevation are defined once here and nowhere else:
+     surface-panel  page-level container (16 px radius, float shadow)
+     surface-tile   KPI tile / list card inside a page (12 px radius, small float shadow)
+     surface-chip   map controls, legends, badges floating over the 3D scene (12 px radius)
+   Translucency keeps the spatial backdrop visible; text-bearing surfaces stay ≥ 85 % opaque for contrast,
+   and fall back to opaque white where backdrop-filter is unsupported. */
+@utility surface-panel {
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.86);
+  box-shadow:
+    var(--shadow-float),
+    0 0 0 1px rgb(15 23 42 / 0.045);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+@utility surface-tile {
+  border-radius: 0.75rem;
+  border: 1px solid rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.9);
+  box-shadow:
+    var(--shadow-float-sm),
+    0 0 0 1px rgb(15 23 42 / 0.045);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+@utility surface-chip {
+  border-radius: 0.75rem;
+  background-color: rgb(255 255 255 / 0.9);
+  box-shadow:
+    var(--shadow-float-sm),
+    0 0 0 1px rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(10px);
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .surface-panel,
+  .surface-tile,
+  .surface-chip {
+    background-color: #fff;
+  }
+}
+
+/* Section label used above grouped fields and in dense panels (one style everywhere). */
+@utility eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-slate-400);
+}
+
+/* Live numbers: tabular monospace so digits don't jitter as values update. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

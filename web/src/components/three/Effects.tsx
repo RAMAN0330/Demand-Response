@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Line, OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { SLDC } from '@/data/topology'
+import { KARNATAKA_BOUNDARY, SLDC } from '@/data/topology'
 import { project, STATE_TOP } from '@/lib/geo'
 export type DispatchPhase = 'idle' | 'sending' | 'acking' | 'ramping' | 'done'
 import { useUI as useUIStore, type CameraPreset } from '@/store/useUI'
@@ -103,13 +103,66 @@ const PRESETS: Record<CameraPreset, { pos: [number, number, number]; target: [nu
   }
 })()
 
+/**
+ * Fit a whole-state view to the viewport: keep the preset's viewing direction, tilt further towards the horizon in
+ * wide, short panels (the state is taller than it is wide, so a steeper look-down leaves the sides empty), then find
+ * the closest distance at which every boundary point projects inside the frame. Bisection on distance, ~20 steps.
+ */
+function fitStateView(preset: 'STATE' | 'TILT', aspect: number, fov: number): { pos: THREE.Vector3; target: THREE.Vector3 } {
+  const p = PRESETS[preset]
+  const target = new THREE.Vector3(...p.target)
+  const dir = new THREE.Vector3(...p.pos).sub(target).normalize()
+  if (aspect > 1.5) {
+    // lower the elevation: blend the direction towards the horizontal component
+    const flat = new THREE.Vector3(dir.x, 0, dir.z).normalize()
+    const k = Math.min(0.45, (aspect - 1.5) * 0.35)
+    dir.lerp(flat, k).normalize()
+  }
+  const pts = (
+    KARNATAKA_BOUNDARY.length
+      ? KARNATAKA_BOUNDARY
+      : [
+          [74, 11.5],
+          [78.6, 18.5],
+        ]
+  ).map(([lon, lat]) => {
+    const [x, z] = project(lon, lat)
+    return new THREE.Vector3(x, STATE_TOP, z)
+  })
+  // centre the target on the outline's bounding box so the fit is symmetric
+  const box = new THREE.Box3().setFromPoints(pts)
+  box.getCenter(target).setY(0)
+  const cam = new THREE.PerspectiveCamera(fov, aspect, 0.05, 200)
+  const v = new THREE.Vector3()
+  const fits = (d: number) => {
+    cam.position.copy(target).addScaledVector(dir, d)
+    cam.lookAt(target)
+    cam.updateMatrixWorld()
+    for (const q of pts) {
+      v.copy(q).project(cam)
+      if (Math.abs(v.x) > 0.94 || Math.abs(v.y) > 0.9 || v.z > 1) return false
+    }
+    return true
+  }
+  let lo = 2
+  let hi = 30
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2
+    if (fits(mid)) hi = mid
+    else lo = mid
+  }
+  return { pos: target.clone().addScaledVector(dir, hi), target }
+}
+
 export function CameraRig() {
   const controls = useRef<OrbitControlsImpl>(null)
-  const { camera } = useThree()
+  const { camera, size } = useThree()
   const camPreset = useUIStore((s) => s.camera)
   const nonce = useUIStore((s) => s.cameraNonce)
   const fly = useUIStore((s) => s.fly)
   const anim = useRef<{ t: number; fromPos: THREE.Vector3; fromTarget: THREE.Vector3; toPos: THREE.Vector3; toTarget: THREE.Vector3 } | null>(null)
+  // whole-state presets re-fit when the panel's shape changes (rounded so live resizing doesn't thrash)
+  const aspect = Math.round((size.width / Math.max(1, size.height)) * 10) / 10
 
   // a fly-to (selection) wins over the preset; both animate from wherever the camera is now
   useEffect(() => {
@@ -120,13 +173,17 @@ export function CameraRig() {
       toTarget = new THREE.Vector3(fly.x, 0, fly.z)
       // keep a consistent oblique view from the south-east so labels stay readable
       toPos = new THREE.Vector3(fly.x + fly.dist * 0.18, fly.dist * 0.95, fly.z + fly.dist * 0.72)
+    } else if (camPreset === 'STATE' || camPreset === 'TILT') {
+      const f = fitStateView(camPreset, aspect, (camera as THREE.PerspectiveCamera).fov ?? 42)
+      toPos = f.pos
+      toTarget = f.target
     } else {
       const p = PRESETS[camPreset]
       toPos = new THREE.Vector3(...p.pos)
       toTarget = new THREE.Vector3(...p.target)
     }
     anim.current = { t: 0, fromPos: camera.position.clone(), fromTarget: controls.current.target.clone(), toPos, toTarget }
-  }, [camPreset, nonce, fly, camera])
+  }, [camPreset, nonce, fly, camera, aspect])
 
   useFrame((_, dt) => {
     const a = anim.current
@@ -139,7 +196,7 @@ export function CameraRig() {
     if (a.t >= 1) anim.current = null
   })
 
-  return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={0.08} minDistance={1.2} maxDistance={22} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0.4]} />
+  return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={0.08} minDistance={1.2} maxDistance={30} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0.4]} />
 }
 
 /** Light beams over affected participants (selection context): a soft column plus a pulsing ground ring. */

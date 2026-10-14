@@ -1,7 +1,7 @@
-import { useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
-import { ASSET_TYPE_META, BUSES, GENERATORS, SLDC } from '@/data/topology'
+import { ASSET_TYPE_META, BUSES, GENERATORS, SLDC, BUS_BY_ID } from '@/data/topology'
 import type { Asset as FlexAsset, Generator } from '@/data/types'
 import { loadingColor, project, STATE_TOP } from '@/lib/geo'
 import { useUI as useUIStore, type Selection } from '@/store/useUI'
@@ -41,7 +41,7 @@ export function Substations({ stress }: { stress: Record<string, number> }) {
 }
 
 function Substation({ id, stress }: { id: string; stress: number }) {
-  const b = BUSES.find((x) => x.id === id)!
+  const b = BUS_BY_ID[id]
   const [x, z] = project(b.lon, b.lat)
   const r = b.kv === 400 ? 0.065 : 0.045
   const handlers = useInteract({ kind: 'bus', id })
@@ -234,6 +234,9 @@ function BessNode({ a, focus }: { a: FlexAsset; focus?: { mw: number; status: Fo
   const H = 0.22
   const soc = a.bess?.soc ?? 0.5
   const fill = useRef<THREE.Mesh>(null)
+  // one edges geometry per battery size (a new BoxGeometry in JSX args would rebuild and leak on every render)
+  const edges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(w, H, w * 0.6)), [w])
+  useEffect(() => () => edges.dispose(), [edges])
   useFrame(({ clock }) => {
     if (!fill.current) return
     const pulse = focus ? 0.4 + Math.sin(clock.elapsedTime * 5) * 0.3 : 0.6
@@ -245,8 +248,7 @@ function BessNode({ a, focus }: { a: FlexAsset; focus?: { mw: number; status: Fo
         <boxGeometry args={[w, H, w * 0.6]} />
         <meshStandardMaterial color="#ffffff" transparent opacity={0.55} />
       </mesh>
-      <lineSegments position={[0, H / 2, 0]}>
-        <edgesGeometry args={[new THREE.BoxGeometry(w, H, w * 0.6)]} />
+      <lineSegments position={[0, H / 2, 0]} geometry={edges}>
         <lineBasicMaterial color="#2a8761" />
       </lineSegments>
       <mesh ref={fill} position={[0, (H * soc) / 2, 0]}>

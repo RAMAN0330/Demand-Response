@@ -257,7 +257,7 @@ function Problem() {
   const items = [
     {
       icon: <Scale />,
-      t: 'Deviation penalties',
+      t: 'Deviation (DSM) charges',
       d: 'Over- and under-drawal against schedule is charged under DSM regulations — beyond the band, at a premium.',
       c: 'bg-amber-100 text-amber-700',
     },

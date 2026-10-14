@@ -13,6 +13,9 @@ export let SLDC = { name: 'KPTCL SLDC', lon: 77.585, lat: 12.975 }
 export let BUS_BY_ID: Record<string, Bus> = {}
 export let ASSET_BY_ID: Record<string, Asset> = {}
 export let LINE_BY_ID: Record<string, Line> = {}
+export let GEN_BY_ID: Record<string, Generator> = {}
+export let CHANNEL_BY_ID: Record<string, LoadChannel> = {}
+export let STATION_BY_ID: Record<string, GenStation> = {}
 export let ROSTER: RosterGroupDef[] = []
 /** 220 kV station → its load-shedding roster group */
 export let GROUP_OF_CHANNEL: Record<string, RosterGroupDef> = {}
@@ -29,6 +32,9 @@ export function setTopology(t: Topology) {
   BUS_BY_ID = Object.fromEntries(t.buses.map((b) => [b.id, b]))
   ASSET_BY_ID = Object.fromEntries(t.assets.map((a) => [a.id, a]))
   LINE_BY_ID = Object.fromEntries(t.lines.map((l) => [l.id, l]))
+  GEN_BY_ID = Object.fromEntries(t.generators.map((g) => [g.id, g]))
+  CHANNEL_BY_ID = Object.fromEntries(t.channels.load_channels.map((c) => [c.id, c]))
+  STATION_BY_ID = Object.fromEntries(t.channels.gen_stations.map((g) => [g.id, g]))
   ROSTER = t.roster ?? []
   GROUP_OF_CHANNEL = Object.fromEntries(ROSTER.flatMap((g) => g.channels.map((c) => [c, g])))
 }

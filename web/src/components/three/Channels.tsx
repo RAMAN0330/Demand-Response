@@ -10,6 +10,7 @@ import { Line } from '@react-three/drei'
 import { BUS_BY_ID, DISCOM_COLORS, GEN_STATIONS, GROUP_OF_CHANNEL, LOAD_CHANNELS } from '@/data/topology'
 import type { Frame } from '@/data/types'
 import { project, STATE_TOP } from '@/lib/geo'
+import { buildLUT, lutPoint } from '@/lib/vec'
 import { useUI } from '@/store/useUI'
 
 const FUEL_COLOR: Record<string, string> = { coal: '#6a7686', hydro: '#3a6fb0', nuclear: '#7160b8', solar: '#c9a227', wind: '#5f8a2e' }
@@ -34,15 +35,35 @@ export function LoadChannels({ channels, shed = {} }: { channels: Frame['channel
         const mid = a.clone().lerp(b, 0.5)
         mid.y += 0.05 + a.distanceTo(b) * 0.12
         const curve = new THREE.QuadraticBezierCurve3(a, mid, b)
-        return { c, curve, pts: curve.getPoints(16) }
+        return { c, lut: buildLUT(curve, 24), pts: curve.getPoints(16) }
       }),
     [],
   )
+
+  // All feeder arcs in three batched line meshes (normal, selected roster group, rotated out) instead of one
+  // mesh per feeder: ~90 draw calls and line materials become 3.
+  const shedKey = Object.keys(shed).sort().join(',')
+  const batches = useMemo(() => {
+    const mk = () => ({ points: [] as THREE.Vector3[], colors: [] as [number, number, number][] })
+    const out = { normal: mk(), group: mk(), shed: mk() }
+    const col = new THREE.Color()
+    const off = new Set(shedKey ? shedKey.split(',') : [])
+    for (const { c, pts } of feeders) {
+      const b = off.has(c.id) ? out.shed : selGroup && GROUP_OF_CHANNEL[c.id]?.id === selGroup ? out.group : out.normal
+      col.set(DISCOM_COLORS[c.discom] ?? '#96a1ae')
+      for (let i = 0; i < pts.length - 1; i++) {
+        b.points.push(pts[i], pts[i + 1])
+        b.colors.push([col.r, col.g, col.b], [col.r, col.g, col.b])
+      }
+    }
+    return out
+  }, [feeders, shedKey, selGroup])
 
   // flow particles for every feeder in one instanced mesh
   const inst = useRef<THREE.InstancedMesh>(null)
   const phase = useRef(0)
   const m = useMemo(() => new THREE.Matrix4(), [])
+  const v = useMemo(() => new THREE.Vector3(), [])
   // the animation loop reads the latest values through refs (updated after render, never during it)
   const live = useRef(channels)
   const shedRef = useRef(shed)
@@ -54,15 +75,15 @@ export function LoadChannels({ channels, shed = {} }: { channels: Frame['channel
     const im = inst.current
     if (!im) return
     phase.current += dt
-    feeders.forEach(({ c, curve }, i) => {
+    feeders.forEach(({ c, lut }, i) => {
       const mw = live.current[c.id]?.mw ?? 0
       const off = !!shedRef.current[c.id]
       const speed = 0.08 + Math.min(0.6, mw / 900)
       for (let k = 0; k < PER_FEEDER; k++) {
         const u = (phase.current * speed + k / PER_FEEDER + i * 0.137) % 1
-        const p = curve.getPoint(u)
+        lutPoint(lut, u, v)
         const s = off ? 0 : 0.6 + Math.min(1.2, mw / 400)
-        m.makeScale(s, s, s).setPosition(p.x, p.y, p.z)
+        m.makeScale(s, s, s).setPosition(v.x, v.y, v.z)
         im.setMatrixAt(i * PER_FEEDER + k, m)
       }
     })
@@ -71,24 +92,11 @@ export function LoadChannels({ channels, shed = {} }: { channels: Frame['channel
 
   return (
     <group>
-      {feeders.map(({ c, pts }) => {
-        const off = !!shed[c.id]
-        const inGroup = selGroup && GROUP_OF_CHANNEL[c.id]?.id === selGroup
-        const mw = channels[c.id]?.mw ?? 0
-        return (
-          <Line
-            key={`f-${c.id}`}
-            points={pts}
-            color={off ? SHED : DISCOM_COLORS[c.discom]}
-            lineWidth={off ? 1.6 : inGroup ? 2.4 : 0.8 + Math.min(1.6, mw / 350)}
-            transparent
-            opacity={off ? 0.9 : inGroup ? 0.95 : 0.55}
-            dashed={off}
-            dashSize={0.04}
-            gapSize={0.03}
-          />
-        )
-      })}
+      {batches.normal.points.length > 0 && <Line points={batches.normal.points} vertexColors={batches.normal.colors} segments lineWidth={1.1} transparent opacity={0.6} />}
+      {batches.group.points.length > 0 && <Line points={batches.group.points} vertexColors={batches.group.colors} segments lineWidth={2.4} transparent opacity={0.95} />}
+      {batches.shed.points.length > 0 && (
+        <Line points={batches.shed.points} color={SHED} segments lineWidth={1.6} dashed dashSize={0.04} gapSize={0.03} transparent opacity={0.9} />
+      )}
       <instancedMesh ref={inst} args={[undefined, undefined, feeders.length * PER_FEEDER]} frustumCulled={false}>
         <sphereGeometry args={[0.009, 6, 6]} />
         <meshBasicMaterial color="#f6f7f9" toneMapped={false} />

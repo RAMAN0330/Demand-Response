@@ -1,11 +1,27 @@
-import { Suspense, useMemo, useRef, type ReactNode, type Ref } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Grid } from '@react-three/drei'
+import { Grid, PerformanceMonitor } from '@react-three/drei'
 import { Battery, Cable, Diamond, Factory, Layers, Map as MapIcon, Mountain, RadioTower, Tag, Waves, X, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ASSET_TYPE_META, ASSETS, BUS_BY_ID, BUSES, DISCOM_COLORS, GEN_STATIONS, GENERATORS, GROUP_OF_CHANNEL, LINES, LOAD_CHANNELS, SLDC, lineLabel } from '@/data/topology'
+import {
+  ASSET_TYPE_META,
+  ASSETS,
+  BUS_BY_ID,
+  BUSES,
+  DISCOM_COLORS,
+  GROUP_OF_CHANNEL,
+  LINES,
+  LOAD_CHANNELS,
+  SLDC,
+  lineLabel,
+  ASSET_BY_ID,
+  LINE_BY_ID,
+  GEN_BY_ID,
+  CHANNEL_BY_ID,
+  STATION_BY_ID,
+} from '@/data/topology'
 import type { Asset, Frame } from '@/data/types'
 import { fmtMW, loadingColor, project, STATE_TOP } from '@/lib/geo'
 import { affected, worldOf, type Sel } from '@/lib/spatial'
@@ -28,7 +44,19 @@ export interface MapOverlay {
   caption?: string
   /** participants to light up regardless of selection (e.g. a programme's members) */
   lit?: string[]
+  /** labelled beacons at arbitrary places (e.g. simulator drills); tone picks the ISA-101 state colour */
+  markers?: MapMarker[]
 }
+
+export interface MapMarker {
+  id: string
+  lon: number
+  lat: number
+  label: string
+  tone: 'info' | 'warn' | 'bad'
+}
+
+const MARKER_COLOR: Record<MapMarker['tone'], string> = { info: '#3a6fb0', warn: '#c07e18', bad: '#b83b3a' }
 
 export interface MapChrome {
   /** full-bleed workspace: no frame, chrome positioned by the page */
@@ -97,7 +125,15 @@ function MapInner({
   const hoverRef = useRef<HTMLDivElement>(null)
   const hovered = useUI((s) => s.hovered)
   const hoverSel = hovered && !(selection && selection.kind === hovered.kind && selection.id === hovered.id) ? hovered : null
-  const labels = useMapLabels(layers, frame.injections, focus)
+  const labels = useMapLabels(layers, frame.injections, focus, overlay?.markers)
+  const markerGroups = useMemo(() => {
+    const g: Partial<Record<MapMarker['tone'], MapMarker[]>> = {}
+    for (const m of overlay?.markers ?? []) (g[m.tone] ??= []).push(m)
+    return Object.entries(g) as [MapMarker['tone'], MapMarker[]][]
+  }, [overlay?.markers])
+  // adaptive resolution: drop to 1× device pixels when the frame rate sags, climb back when it recovers
+  const [dpr, setDpr] = useState(() => Math.min(2, window.devicePixelRatio || 1))
+  useMapKeys()
   const stress = useMemo(() => {
     const out: Record<string, number> = {}
     for (const l of LINES) {
@@ -110,12 +146,11 @@ function MapInner({
 
   return (
     <div className={cn('relative h-full min-h-[280px] w-full overflow-hidden bg-[#eef1f5]', !chrome.bare && 'rounded-xl border', className)}>
-      <Canvas flat camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={[1, 2]} gl={{ antialias: true }}>
+      <Canvas flat camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={dpr} gl={{ antialias: true }}>
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(Math.min(2, window.devicePixelRatio || 1))} flipflops={3} onFallback={() => setDpr(1)} />
         <color attach="background" args={['#eef1f5']} />
         <fog attach="fog" args={['#eef1f5', 16, 34]} />
-        <ambientLight intensity={0.95} />
-        <directionalLight position={[5, 10, 4]} intensity={1.1} />
-        <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#8bb0da" />
+        <Daylight clock={frame.clock} />
         <Suspense fallback={null}>
           <Grid
             position={[0, -0.001, 0]}
@@ -141,6 +176,9 @@ function MapInner({
           <SldcBeacon />
           {overlay?.wave && <CommandWave targets={overlay.wave.targets} phase={overlay.wave.phase} />}
           {beacons.length > 0 && <Beacons points={beacons} />}
+          {markerGroups.map(([tone, pts]) => (
+            <Beacons key={tone} points={pts} color={MARKER_COLOR[tone]} />
+          ))}
           <CameraRig />
           <LabelProjector labels={labels} layer={labelLayer} />
           <AnchorProjector point={anchorPoint(selection, Object.keys(overlay?.focus ?? {}))} el={cardRef} />
@@ -159,6 +197,42 @@ function MapInner({
       )}
     </div>
   )
+}
+
+/**
+ * Sun follows the grid clock: azimuth sweeps east → west, elevation peaks at noon. Deliberately subtle so the
+ * ISA-101 light background and state colours stay legible at night.
+ */
+function Daylight({ clock }: { clock: string }) {
+  const [hh = 12, mm = 0] = clock.split(':').map(Number)
+  const h = hh + mm / 60
+  const a = (Math.PI * (h - 6)) / 12 // 0 at sunrise, π at sunset
+  const elev = Math.sin(a)
+  const day = Math.max(0, elev)
+  const night = elev < 0
+  return (
+    <>
+      <ambientLight intensity={0.78 + day * 0.2} color={night ? '#dfe6f3' : '#ffffff'} />
+      <directionalLight position={[Math.cos(a) * 9, 3 + day * 9, 4]} intensity={night ? 0.55 : 0.7 + day * 0.45} color={night ? '#b9c9e6' : day < 0.3 ? '#ffe2bd' : '#ffffff'} />
+      <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#8bb0da" />
+    </>
+  )
+}
+
+/** R resets the view to the whole state; Esc clears the selection. Ignored while typing in a field. */
+function useMapKeys() {
+  const setCamera = useUI((s) => s.setCamera)
+  const select = useUI((s) => s.select)
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return
+      if (e.key === 'Escape') select(null)
+      else if (e.key === 'r' || e.key === 'R') setCamera('STATE')
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [setCamera, select])
 }
 
 const CAMS: { id: CameraPreset; label: string }[] = [
@@ -189,7 +263,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
   const toggle = useUI((s) => s.toggleLayer)
   return (
     <div className={cn('absolute top-2.5 left-2.5 flex flex-col gap-1.5', className)}>
-      <div className="flex flex-wrap gap-0.5 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-900/10 backdrop-blur">
+      <div className="flex flex-wrap gap-0.5 surface-chip p-1">
         <MapIcon className="mx-1 size-3.5 self-center text-sky-600" />
         {CAMS.map((c) => (
           <button
@@ -204,7 +278,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
           </button>
         ))}
       </div>
-      <div className={cn('flex gap-0.5 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-slate-900/10 backdrop-blur', compact && 'flex-wrap')}>
+      <div className={cn('flex gap-0.5 surface-chip p-1', compact && 'flex-wrap')}>
         {LAYER_DEFS.map(({ k, label, icon: Icon }) => (
           <Tooltip key={k}>
             <TooltipTrigger asChild>
@@ -227,12 +301,7 @@ function MapToolbar({ compact, className }: { compact?: boolean; className?: str
 function Legend({ frame, className }: { frame: Frame; className?: string }) {
   const live = Object.values(frame.channels).filter((c) => c.src === 'KPTCL').length
   return (
-    <div
-      className={cn(
-        'pointer-events-none absolute bottom-2.5 left-2.5 rounded-lg bg-white/90 p-2 text-[10px] text-slate-600 shadow-sm ring-1 ring-slate-900/10 backdrop-blur',
-        className,
-      )}
-    >
+    <div className={cn('surface-chip pointer-events-none absolute bottom-2.5 left-2.5 p-2 text-[10px] text-slate-600', className)}>
       <div className="flex gap-2">
         {[
           ['<75%', 0.5],
@@ -291,7 +360,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'line') {
-    const l = LINES.find((x) => x.id === sel.id)!
+    const l = LINE_BY_ID[sel.id]
     return {
       title: lineLabel(l.id),
       sub: `${l.kv} kV${l.hvdc ? ' HVDC' : ''} · limit ${fmtMW(l.limitMW)}`,
@@ -303,7 +372,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'gen') {
-    const g = GENERATORS.find((x) => x.id === sel.id)!
+    const g = GEN_BY_ID[sel.id]
     const mw = frame.gen_output[g.id] ?? 0
     return {
       title: g.name,
@@ -316,7 +385,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'channel') {
-    const c = LOAD_CHANNELS.find((x) => x.id === sel.id)!
+    const c = CHANNEL_BY_ID[sel.id]
     const v = frame.channels[c.id]
     const g = GROUP_OF_CHANNEL[c.id]
     const off = !!frame.shedding?.shed_channels[c.id]
@@ -343,7 +412,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'station') {
-    const g = GEN_STATIONS.find((x) => x.id === sel.id)!
+    const g = STATION_BY_ID[sel.id]
     const v = frame.channels[g.id]
     return {
       title: g.name,
@@ -369,7 +438,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
         : [['Status', 'See DR Events for settlement']],
     }
   }
-  const a = ASSETS.find((x) => x.id === sel.id)!
+  const a = ASSET_BY_ID[sel.id]
   const st = frame.assets[a.id]
   const sp = frame.live_setpoints[a.id] ?? 0
   return {
@@ -421,12 +490,7 @@ const AnchoredCard = ({
       className={cn('absolute top-0 left-0 z-20 opacity-0 transition-opacity duration-150 will-change-transform', hover ? 'pointer-events-none w-56' : 'w-72', !d && 'invisible')}
     >
       {d && sel && (
-        <div
-          className={cn(
-            'relative rounded-xl border border-white/70 bg-white/85 p-3 text-xs shadow-xl shadow-slate-900/10 ring-1 backdrop-blur-md',
-            hover ? 'ring-slate-900/10' : 'ring-sky-300/70',
-          )}
-        >
+        <div className={cn('surface-panel relative p-3 text-xs', !hover && '!border-sky-300/80')}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="truncate text-[13px] font-semibold text-slate-800">{d.title}</div>
@@ -459,7 +523,7 @@ const AnchoredCard = ({
   )
 }
 
-function useMapLabels(layers: MapLayers, injections: Record<string, number>, focus: Focus): MapLabel[] {
+function useMapLabels(layers: MapLayers, injections: Record<string, number>, focus: Focus, markers?: MapMarker[]): MapLabel[] {
   return useMemo(() => {
     const out: MapLabel[] = []
     const at = (lon: number, lat: number, y: number): [number, number, number] => {
@@ -499,7 +563,7 @@ function useMapLabels(layers: MapLayers, injections: Record<string, number>, foc
       priority: 5,
     })
     for (const [id, f] of Object.entries(focus)) {
-      const a = ASSETS.find((x) => x.id === id)
+      const a = ASSET_BY_ID[id]
       if (!a || a.type === 'generation') continue
       const supply = a.type === 'bess'
       out.push({
@@ -513,6 +577,17 @@ function useMapLabels(layers: MapLayers, injections: Record<string, number>, foc
         ),
       })
     }
+    for (const m of markers ?? [])
+      out.push({
+        id: `mk-${m.id}`,
+        pos: at(m.lon, m.lat, STATE_TOP + 1.0),
+        priority: 20,
+        node: (
+          <div className="rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap text-white shadow" style={{ background: MARKER_COLOR[m.tone] }}>
+            {m.label}
+          </div>
+        ),
+      })
     return out
-  }, [layers, injections, focus])
+  }, [layers, injections, focus, markers])
 }

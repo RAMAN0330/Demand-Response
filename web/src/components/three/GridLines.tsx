@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
-import { BUS_BY_ID, LINES } from '@/data/topology'
+import { BUS_BY_ID, LINE_BY_ID, LINES } from '@/data/topology'
 import { loadingColor, project, STATE_TOP } from '@/lib/geo'
+import { buildLUT, lutPoint } from '@/lib/vec'
 import { useUI as useUIStore } from '@/store/useUI'
 
 const LINE_Y = STATE_TOP + 0.05
 
 function endpoints(id: string) {
-  const l = LINES.find((x) => x.id === id)!
+  const l = LINE_BY_ID[id]
   const a = BUS_BY_ID[l.from]
   const b = BUS_BY_ID[l.to]
   const [ax, az] = project(a.lon, a.lat)
@@ -112,22 +113,23 @@ function FlowParticles({
 }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const phase = useRef(new Float32Array(geo.length * PER_LINE).map((_, i) => (i % PER_LINE) / PER_LINE))
-  const data = useRef({ flows, loading, outaged })
+  const data = useRef({ flows, loading, out: new Set(outaged) })
   useEffect(() => {
-    data.current = { flows, loading, outaged }
+    data.current = { flows, loading, out: new Set(outaged) }
   }, [flows, loading, outaged])
-  const curves = useMemo(() => geo.map((g) => new THREE.CatmullRomCurve3(g.pts)), [geo])
+  // arc-length lookup tables, built once: per-frame sampling is an index + lerp with no allocation
+  const luts = useMemo(() => geo.map((g) => buildLUT(new THREE.CatmullRomCurve3(g.pts), 64)), [geo])
   const tmp = useMemo(() => new THREE.Object3D(), [])
   const col = useMemo(() => new THREE.Color(), [])
 
   useFrame((_, dt) => {
     const m = ref.current
     if (!m) return
-    const { flows: f, loading: ld, outaged: out } = data.current
+    const { flows: f, loading: ld, out } = data.current
     geo.forEach((g, li) => {
       const flow = f[g.line.id] ?? 0
       const v = ld[g.line.id] ?? 0
-      const active = Math.abs(flow) > 15 && !out.includes(g.line.id)
+      const active = Math.abs(flow) > 15 && !out.has(g.line.id)
       const n = active ? Math.max(2, Math.min(PER_LINE, Math.round(2 + v * 4))) : 0
       const speed = (0.08 + Math.min(1.4, Math.abs(flow) / 1500) * 0.35) / Math.max(0.6, g.len)
       for (let k = 0; k < PER_LINE; k++) {
@@ -140,8 +142,7 @@ function FlowParticles({
         }
         phase.current[idx] = (phase.current[idx] + dt * speed) % 1
         const t = flow >= 0 ? phase.current[idx] : 1 - phase.current[idx]
-        const p = curves[li].getPointAt(t)
-        tmp.position.copy(p)
+        lutPoint(luts[li], t, tmp.position)
         tmp.scale.setScalar(g.line.kv === 220 ? 0.65 : 1)
         tmp.updateMatrix()
         m.setMatrixAt(idx, tmp.matrix)

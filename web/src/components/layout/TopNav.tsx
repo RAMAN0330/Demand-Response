@@ -15,6 +15,7 @@ import {
   Power,
   Receipt,
   Settings2,
+  Siren,
   ShieldAlert,
   ShieldCheck,
   UserCog,
@@ -45,7 +46,7 @@ const fmtAge = (s: number | null | undefined) => (s == null ? 'never' : s < 60 ?
 const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'command', label: 'Overview', icon: LayoutDashboard },
   { id: 'decisions', label: 'DR Events', icon: Zap },
-  { id: 'resources', label: 'Programs', icon: Users },
+  { id: 'resources', label: 'Programmes', icon: Users },
   { id: 'operations', label: 'Grid', icon: Network },
   { id: 'shedding', label: 'Load Rotation', icon: Power },
   { id: 'analysis', label: 'Forecast', icon: LineChart },
@@ -54,6 +55,7 @@ const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
 
 const MORE: { id: Page; label: string; hint: string; icon: typeof LayoutDashboard; perm?: string }[] = [
   { id: 'whatif', label: 'What-if sandbox', hint: 'Test a DR event before it happens — no dispatch', icon: FlaskConical, perm: 'whatif' },
+  { id: 'simulator', label: 'Grid simulator', hint: 'Training drills, N-1 security and system response on the 3D network', icon: Siren },
   { id: 'reports', label: 'Settlement & Audit', hint: 'Baseline, delivery, payments, audit trail', icon: Receipt },
   { id: 'admin', label: 'Administration', hint: 'Autonomy policy, data sources, simulator, users', icon: Settings2 },
 ]
@@ -115,7 +117,7 @@ export function TopNav() {
       </button>
       <div className="my-3 w-px bg-slate-200" />
 
-      <nav className="flex items-stretch">
+      <nav className="flex min-w-0 items-stretch">
         {PRIMARY.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => go(id)} className={cn(tab, page === id && on)}>
             <Icon className="size-4 max-[1799px]:hidden" />
@@ -126,7 +128,7 @@ export function TopNav() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className={cn(tab, 'gap-1', MORE.some((m) => m.id === page) && on)}>
-              {MORE.find((m) => m.id === page)?.label ?? 'More'} <ChevronDown className="size-3.5" />
+              <span className="max-w-40 truncate">{MORE.find((m) => m.id === page)?.label ?? 'More'}</span> <ChevronDown className="size-3.5" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
@@ -158,7 +160,7 @@ export function TopNav() {
                 </span>
                 <span className="hidden min-[2100px]:inline">{ev.id} · </span>
                 {ev.direction === 'UP' ? '↓' : '↑'}
-                <span className="hidden 2xl:inline">load</span> {fmtMW(ev.requirement_mw)}
+                <span className="hidden min-[1760px]:inline">load</span> {fmtMW(ev.requirement_mw)}
                 {ev.awaiting_mw > 0 && <span className="rounded bg-amber-500 px-1 text-[9px] text-white">APPROVE</span>}
               </button>
             )}
@@ -193,7 +195,7 @@ export function TopNav() {
                     ) : (
                       <>
                         L{eff}
-                        <span className="hidden 2xl:inline">{LEVELS[eff]}</span>
+                        <span className="hidden min-[1680px]:inline">{LEVELS[eff]}</span>
                       </>
                     )}
                     {degraded && !f.autonomy.suspended && <span className="text-[9px] font-bold opacity-80">↓ from L{f.autonomy.level}</span>}
@@ -310,7 +312,7 @@ export function TopNav() {
                   <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-amber-400 ring-2 ring-white" title="Two-factor sign-in is off" />
                 )}
               </span>
-              <span className="hidden text-left leading-tight 2xl:block">
+              <span className="hidden text-left leading-tight min-[1760px]:block">
                 <span className="block text-[12px] font-medium">{user?.username}</span>
                 <span className="block text-[10px] text-muted-foreground">{user?.role_label}</span>
               </span>

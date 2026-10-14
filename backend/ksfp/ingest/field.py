@@ -78,6 +78,7 @@ class Disturbance:
             "start": self.start,
             "end": self.start + self.duration_s,
             "active": self.active(now),
+            "pending": now < self.start,
             "intensity": round(self.envelope(now), 3),
             "source": self.source,
         }
@@ -188,7 +189,12 @@ class SimulatedField:
     def clear(self, dist_id: str) -> bool:
         now = self.clock.now()
         for d in self.disturbances:
-            if d.id == dist_id and d.active(now):
+            if d.id != dist_id:
+                continue
+            if d.start > now:  # scheduled but not started: cancel outright
+                d.start, d.duration_s = now - 1.0, 0.0
+                return True
+            if d.active(now):
                 d.duration_s = max(0.0, now - d.start + d.ramp_s * 0.2)
                 return True
         return False

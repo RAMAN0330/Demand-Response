@@ -20,11 +20,12 @@ from ..decide.optimizer import compare, optimize
 from ..decide.policy import Envelope
 from ..decide.twin import simulate
 from ..grid.dsm import DEFAULT_DSM
-from ..grid.network import solve
+from ..grid.network import great_circle_km, n1_screen, solve
 from ..grid.state import assess
 from ..grid.topology import topology
 from ..ingest.channels import channels
 from ..ingest.field import Disturbance
+from ..ingest.scenarios import BY_ID as SCENARIO_BY_ID, SCENARIOS
 from ..security.auth import DEMO_USERS, POLICY, ROLE_LABEL, ROLES, Principal, decode_token
 from ..security.service import AuthError
 
@@ -275,6 +276,45 @@ async def network(request: Request, p: Principal = Depends(need("view"))):
         for ln in t.lines
     ]
     return {"lines": sorted(lines, key=lambda x: -x["loading"]), "voltage": s.flow.voltage, "islanded": s.flow.islanded, "outaged": s.outaged}
+
+
+@router.get("/network/contingency")
+async def contingency(request: Request, p: Principal = Depends(need("view"))):
+    """N-1 security screen of the live state: every single-line outage, evaluated with LODFs in one pass."""
+    r = rt(request)
+    s = r.state
+    if not s:
+        raise HTTPException(503)
+    t = topology()
+    t0 = time.perf_counter()
+    cons, worst = n1_screen(s.flow.flows, s.outaged)
+    ms = (time.perf_counter() - t0) * 1000
+    km = {ln["id"]: round(great_circle_km(t.bus(ln["from"])["lat"], t.bus(ln["from"])["lon"], t.bus(ln["to"])["lat"], t.bus(ln["to"])["lon"]), 1) for ln in t.lines}
+    ext = {b["id"] for b in t.external}
+    insecure = [c for c in cons if c.worst_loading > 1.0 or (c.islanding and not set(c.islanded) <= ext)]
+    return {
+        "method": "DC LODF screen (all single-line outages)",
+        "solve_ms": round(ms, 2),
+        "secure": not any(c.worst_loading > 1.0 for c in cons),
+        "insecure": len(insecure),
+        "contingencies": [
+            {
+                "line": c.line,
+                "label": t.line_label(c.line),
+                "worst_line": c.worst_line,
+                "worst_label": t.line_label(c.worst_line) if c.worst_line else None,
+                "worst_loading": round(c.worst_loading, 4),
+                "overloads": c.overloads,
+                "islanding": c.islanding,
+                "islanded": list(c.islanded),
+                # a radial line that only cuts off an ISTS tie point loses an import path, not Karnataka load
+                "tie_only": c.islanding and all(t.bus(b).get("external") for b in c.islanded),
+            }
+            for c in cons
+        ],
+        "worst_by_line": {k: round(v, 4) for k, v in worst.items()},
+        "route_km": km,
+    }
 
 
 # ---------------------------------------------------------------- alarms
@@ -631,7 +671,8 @@ async def whatif(body: WhatIfIn, request: Request, p: Principal = Depends(need("
     for g in wind:
         s.gen_output[g["id"]] = max(0.0, s.gen_output[g["id"]] - body.re_drop_mw * 0.3 * s.gen_output[g["id"]] / wsum)
     s.demand_mw = sum(s.bus_load.values())
-    s.state_gen_mw = sum(v for k, v in s.gen_output.items() if next(g for g in t.generators if g["id"] == k)["owner"] != "Central")
+    owner = {g["id"]: g["owner"] for g in t.generators}
+    s.state_gen_mw = sum(v for k, v in s.gen_output.items() if owner[k] != "Central")
     s.drawal_mw = s.demand_mw - s.state_gen_mw
     s.re_mw = sum(s.gen_output[g["id"]] for g in solar + wind)
     s.frequency += body.freq_offset_hz - (body.demand_shock_mw + body.re_drop_mw) / 22000
@@ -771,6 +812,64 @@ async def del_dist(dist_id: str, request: Request, p: Principal = Depends(need("
         ok = r.field.clear(dist_id)
         r.audit.append(r.clock.now(), "SYSTEM", p.username, f"Simulator disturbance ended: {dist_id}", dist_id)
     return {"ok": ok}
+
+
+@router.delete("/admin/simulator/disturbances")
+async def clear_all_dist(request: Request, p: Principal = Depends(need("simulator"))):
+    """End every active drill and cancel every scheduled one (operator "all clear")."""
+    r = rt(request)
+    async with r.lock:
+        now = r.clock.now()
+        ids = [d.id for d in r.field.disturbances if d.active(now) or d.start > now]
+        for i in ids:
+            r.field.clear(i)
+        if ids:
+            r.audit.append(now, "SYSTEM", p.username, f"Simulator all clear: {len(ids)} disturbance(s) ended", ",".join(ids))
+    return {"ended": ids}
+
+
+@router.get("/admin/simulator/scenarios")
+async def list_scenarios(p: Principal = Depends(need("view"))):
+    return [s.to_dict() for s in SCENARIOS]
+
+
+@router.post("/admin/simulator/scenarios/{scenario_id}")
+async def run_scenario(scenario_id: str, request: Request, p: Principal = Depends(need("simulator"))):
+    sc = SCENARIO_BY_ID.get(scenario_id)
+    if not sc:
+        raise HTTPException(404, "Unknown scenario")
+    r = rt(request)
+    async with r.lock:
+        now = r.clock.now()
+        made = [
+            r.field.add(Disturbance(s.kind, dict(s.params), now + s.at_min * 60, s.duration_min * 60, s.ramp_min * 60, s.label, source=p.username))
+            for s in sc.steps
+        ]
+        r.audit.append(now, "SYSTEM", p.username, f"Simulator scenario launched: {sc.title} ({len(made)} steps)", ",".join(d.id for d in made))
+    return {"scenario": sc.id, "disturbances": [d.to_dict(now) for d in made]}
+
+
+class ClockIn(BaseModel):
+    time_scale: float = Field(..., ge=1, le=120)
+
+
+@router.get("/admin/simulator/clock")
+async def get_clock(request: Request, p: Principal = Depends(need("view"))):
+    r = rt(request)
+    return {"time_scale": r.clock.time_scale, "adjustable": r.kptcl is None, "now": r.clock.now()}
+
+
+@router.put("/admin/simulator/clock")
+async def set_clock(body: ClockIn, request: Request, p: Principal = Depends(need("simulator"))):
+    """Simulation speed (simulated seconds per real second). Fixed at 1× when live KPTCL channels are in use."""
+    r = rt(request)
+    if r.kptcl is not None:
+        raise HTTPException(409, "Simulation speed is fixed at real time while live KPTCL channels are in use")
+    async with r.lock:
+        old = r.clock.time_scale
+        r.clock.set_scale(body.time_scale)
+        r.audit.append(r.clock.now(), "SYSTEM", p.username, f"Simulation speed changed {old:g}× → {body.time_scale:g}×", "clock")
+    return {"time_scale": r.clock.time_scale, "adjustable": True, "now": r.clock.now()}
 
 
 @router.get("/admin/config/dsm")

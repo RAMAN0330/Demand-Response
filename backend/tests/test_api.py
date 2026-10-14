@@ -60,3 +60,24 @@ def test_kill_switch_and_audit(client):
     assert client.get("/api/v1/autonomy", headers=sic).json()["effective"] <= 1
     client.post("/api/v1/autonomy/resume", headers=sic)
     assert client.get("/api/v1/audit/verify", headers=sic).json()["ok"]
+
+
+def test_simulator_scenarios_clock_and_all_clear(client):
+    en = token(client, "engineer")
+    an = token(client, "analyst")
+    sc = client.get("/api/v1/admin/simulator/scenarios", headers=an).json()
+    assert len(sc) >= 4 and all(s["steps"] for s in sc)
+    assert client.post("/api/v1/admin/simulator/scenarios/evening_peak", headers=an).status_code == 403
+    run = client.post("/api/v1/admin/simulator/scenarios/evening_peak", headers=en).json()
+    ds = run["disturbances"]
+    assert len(ds) == 3 and ds[0]["active"] and ds[1]["pending"]
+    # speed change keeps simulated time continuous
+    t0 = client.get("/api/v1/admin/simulator/clock", headers=an).json()["now"]
+    ck = client.put("/api/v1/admin/simulator/clock", headers=en, json={"time_scale": 60}).json()
+    assert ck["time_scale"] == 60 and ck["now"] >= t0 and ck["now"] - t0 < 600
+    assert client.put("/api/v1/admin/simulator/clock", headers=en, json={"time_scale": 0}).status_code == 422
+    client.put("/api/v1/admin/simulator/clock", headers=en, json={"time_scale": 30})
+    ended = client.delete("/api/v1/admin/simulator/disturbances", headers=en).json()["ended"]
+    assert {d["id"] for d in ds} <= set(ended)
+    left = client.get("/api/v1/admin/simulator/disturbances", headers=an).json()
+    assert not any(d["pending"] or (d["active"] and d["id"] in ended and d["intensity"] > 0.5) for d in left)

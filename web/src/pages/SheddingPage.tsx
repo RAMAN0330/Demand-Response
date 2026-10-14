@@ -241,7 +241,7 @@ export function SheddingPage() {
             <Legend cls="bg-rose-50 ring-rose-300" label="rotated out (feeders open)" />
             <Legend cls="bg-slate-50 ring-slate-200" label="resting after a spell" />
             <Legend cls="bg-slate-100 ring-slate-300" label="daily limit reached" />
-            <span>bar = minutes off today of {p.max_daily_min} · m = minutes, × = spells</span>
+            <span>bar = minutes rotated out today of {p.max_daily_min} min · × = spells</span>
           </div>
         </Panel>
 
@@ -293,22 +293,23 @@ function GroupCard({ g, p, now, onLocate }: { g: Group; p: Policy; now: number; 
           ', ',
         )}${g.fairness ? `\nFairness F ${g.fairness.F.toFixed(2)} — ${g.fairness.H_h.toFixed(1)} h, ${g.fairness.N} interruption(s) in 7 days, latest ${g.fairness.D_min.toFixed(0)} min (lower F goes next)` : ''}`}
       className={cn(
-        'flex min-h-0 min-w-0 flex-col justify-between rounded-lg px-2 py-1 text-left ring-1 transition hover:ring-sky-300',
+        'flex min-h-0 min-w-0 flex-col justify-between gap-0.5 rounded-xl px-2 py-1.5 text-left ring-1 transition hover:-translate-y-px hover:ring-sky-300',
         out ? 'bg-rose-50 ring-rose-300' : capped ? 'bg-slate-100 ring-slate-300' : resting ? 'bg-slate-50 ring-slate-200' : 'bg-white/80 ring-slate-200',
       )}
     >
-      <div className="flex items-center gap-1">
-        <span className={cn('font-mono text-[12px] font-semibold tabular-nums', out ? 'text-rose-700' : 'text-slate-800')}>{fmtMW(g.mw_now)}</span>
-        {out && <Power className="size-3 text-rose-600" />}
-        <span className="ml-auto truncate text-[9px] text-slate-500">
-          {out ? `${left?.toFixed(0)}m left` : capped ? 'limit' : resting ? `rest ${Math.ceil(restLeft / 60)}m` : `${g.channels.length} stn`}
-        </span>
+      <div className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
+        <span className={cn('num text-[13px] font-semibold', out ? 'text-rose-700' : 'text-slate-800')}>{Math.round(g.mw_now).toLocaleString('en-IN')}</span>
+        <span className="text-[9px] font-medium text-slate-400">MW</span>
+        {out && <Power className="ml-auto size-3 shrink-0 self-center text-rose-600" />}
+      </div>
+      <div className={cn('truncate text-[9.5px] font-medium', out ? 'text-rose-700' : capped ? 'text-slate-600' : resting ? 'text-slate-500' : 'text-slate-400')}>
+        {out ? `${left?.toFixed(0)} min left` : capped ? 'daily limit' : resting ? `resting ${Math.ceil(restLeft / 60)} min` : `${g.channels.length} stations`}
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200/70">
         <div className={cn('h-full rounded-full', out ? 'bg-rose-500' : pct > 80 ? 'bg-amber-400' : 'bg-sky-400')} style={{ width: `${pct}%` }} />
       </div>
-      <div className="truncate text-[9px] text-slate-500">
-        {g.minutes_today.toFixed(0)}m · {g.spells_today}×
+      <div className="num truncate text-[9.5px] text-slate-500">
+        {g.minutes_today.toFixed(0)} min · {g.spells_today}×
       </div>
     </button>
   )
@@ -459,7 +460,7 @@ function OrderPanel({ open, orders, policy, reload }: { open: Order | null; orde
           </div>
           {can('shed_propose') && (
             <div className="flex shrink-0 items-center gap-2">
-              <Input type="number" value={mw} onChange={(e) => setMw(Number(e.target.value))} className="h-7 w-20 bg-white/80 text-xs" aria-label="MW to rotate" />
+              <Input type="number" value={mw} onChange={(e) => setMw(Number(e.target.value))} className="h-7 w-24 bg-white/80 text-xs" aria-label="MW to rotate" />
               <span className="text-[11px] text-slate-500">MW</span>
               <Input placeholder="Reason (e.g. RLDC instruction)" value={reason} onChange={(e) => setReason(e.target.value)} className="h-7 bg-white/80 text-xs" />
               <Button

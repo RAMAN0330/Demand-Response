@@ -22,6 +22,12 @@ class Clock:
         """Simulation-aware epoch seconds."""
         return self._sim0 + (time.monotonic() - self._real0) * self.time_scale
 
+    def set_scale(self, time_scale: float) -> None:
+        """Change speed without a jump: re-anchor the simulated time at the current instant."""
+        self._sim0 = self.now()
+        self._real0 = time.monotonic()
+        self.time_scale = time_scale
+
     def dt(self) -> datetime:
         return datetime.fromtimestamp(self.now(), IST)
 

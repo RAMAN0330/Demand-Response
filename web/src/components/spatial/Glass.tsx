@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export const glass = 'border border-white/70 bg-white/80 shadow-lg shadow-slate-900/[0.06] ring-1 ring-slate-900/[0.04] backdrop-blur-md'
+export const glass = 'surface-panel'
 
 export function GlassPanel({
   title,
@@ -31,10 +31,10 @@ export function GlassPanel({
   return (
     <section
       className={cn(
-        'pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-2xl',
+        'pointer-events-auto flex min-h-0 flex-col overflow-hidden',
         glass,
-        tone === 'warn' && 'ring-2 ring-amber-300/80',
-        tone === 'bad' && 'ring-2 ring-rose-300/80',
+        tone === 'warn' && '!border-amber-300 border-2',
+        tone === 'bad' && '!border-rose-300 border-2',
         className,
         !open && 'flex-none',
       )}
