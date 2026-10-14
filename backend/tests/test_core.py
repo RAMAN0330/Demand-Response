@@ -458,3 +458,40 @@ def test_dispatch_priority_bess_then_industrial_then_others_then_rotation():
     huge, res = by_tier(cap[1] + cap[2] + cap[3] + 300)
     assert res > 250  # what is left is the residual load rotation would be proposed for
     assert all(al.rank == i + 1 for i, al in enumerate(optimize(a, evals, 900, 4, "OPTIMAL").allocations))
+
+
+# ------------------------------------------------------------------ vector maths: PTDF / LODF accuracy
+def test_great_circle_distance_matches_reference():
+    from ksfp.grid.network import great_circle_km
+
+    # Bengaluru (12.9716 N, 77.5946 E) → Mysuru (12.2958 N, 76.6394 E): ≈ 128 km by great circle
+    d = great_circle_km(12.9716, 77.5946, 12.2958, 76.6394)
+    assert 126 < d < 130
+    assert great_circle_km(15.0, 76.0, 15.0, 76.0) == 0.0
+
+
+def test_lodf_n1_matches_full_resolve():
+    import numpy as np
+
+    from ksfp.grid.network import lodf, n1_screen, ptdf_model
+
+    inj = base_injection()
+    base = solve(inj)
+    m = ptdf_model(())
+    D, radial = lodf()
+    f = np.array([base.flows[lid] for lid in m.line_ids])
+    checked = 0
+    for k, lid in enumerate(m.line_ids):
+        if radial[k]:
+            assert set(solve(inj, (lid,)).islanded)  # a radial line's loss islands something
+            continue
+        post = f + D[:, k] * f[k]
+        full = solve(inj, (lid,))
+        assert max(abs(post[i] - full.flows[x]) for i, x in enumerate(m.line_ids)) < 1e-6
+        checked += 1
+    assert checked > 20
+    cons, worst = n1_screen(base.flows)
+    assert len(cons) == len(m.line_ids)
+    assert all(worst[x] >= 0 for x in worst)
+    top = next(c for c in cons if not c.islanding)
+    assert top.worst_loading == max(c.worst_loading for c in cons if not c.islanding)

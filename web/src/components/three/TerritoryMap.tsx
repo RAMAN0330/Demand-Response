@@ -5,7 +5,23 @@ import { Battery, Cable, Diamond, Factory, Layers, Map as MapIcon, Mountain, Rad
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ASSET_TYPE_META, ASSETS, BUS_BY_ID, BUSES, DISCOM_COLORS, GEN_STATIONS, GENERATORS, GROUP_OF_CHANNEL, LINES, LOAD_CHANNELS, SLDC, lineLabel } from '@/data/topology'
+import {
+  ASSET_TYPE_META,
+  ASSETS,
+  BUS_BY_ID,
+  BUSES,
+  DISCOM_COLORS,
+  GROUP_OF_CHANNEL,
+  LINES,
+  LOAD_CHANNELS,
+  SLDC,
+  lineLabel,
+  ASSET_BY_ID,
+  LINE_BY_ID,
+  GEN_BY_ID,
+  CHANNEL_BY_ID,
+  STATION_BY_ID,
+} from '@/data/topology'
 import type { Asset, Frame } from '@/data/types'
 import { fmtMW, loadingColor, project, STATE_TOP } from '@/lib/geo'
 import { affected, worldOf, type Sel } from '@/lib/spatial'
@@ -286,7 +302,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'line') {
-    const l = LINES.find((x) => x.id === sel.id)!
+    const l = LINE_BY_ID[sel.id]
     return {
       title: lineLabel(l.id),
       sub: `${l.kv} kV${l.hvdc ? ' HVDC' : ''} · limit ${fmtMW(l.limitMW)}`,
@@ -298,7 +314,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'gen') {
-    const g = GENERATORS.find((x) => x.id === sel.id)!
+    const g = GEN_BY_ID[sel.id]
     const mw = frame.gen_output[g.id] ?? 0
     return {
       title: g.name,
@@ -311,7 +327,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'channel') {
-    const c = LOAD_CHANNELS.find((x) => x.id === sel.id)!
+    const c = CHANNEL_BY_ID[sel.id]
     const v = frame.channels[c.id]
     const g = GROUP_OF_CHANNEL[c.id]
     const off = !!frame.shedding?.shed_channels[c.id]
@@ -338,7 +354,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
     }
   }
   if (sel.kind === 'station') {
-    const g = GEN_STATIONS.find((x) => x.id === sel.id)!
+    const g = STATION_BY_ID[sel.id]
     const v = frame.channels[g.id]
     return {
       title: g.name,
@@ -364,7 +380,7 @@ function describe(sel: NonNullable<Selection>, frame: Frame, loading: Record<str
         : [['Status', 'See DR Events for settlement']],
     }
   }
-  const a = ASSETS.find((x) => x.id === sel.id)!
+  const a = ASSET_BY_ID[sel.id]
   const st = frame.assets[a.id]
   const sp = frame.live_setpoints[a.id] ?? 0
   return {
@@ -489,7 +505,7 @@ function useMapLabels(layers: MapLayers, injections: Record<string, number>, foc
       priority: 5,
     })
     for (const [id, f] of Object.entries(focus)) {
-      const a = ASSETS.find((x) => x.id === id)
+      const a = ASSET_BY_ID[id]
       if (!a || a.type === 'generation') continue
       const supply = a.type === 'bess'
       out.push({

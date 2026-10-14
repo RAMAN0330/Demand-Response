@@ -20,7 +20,7 @@ from ..decide.optimizer import compare, optimize
 from ..decide.policy import Envelope
 from ..decide.twin import simulate
 from ..grid.dsm import DEFAULT_DSM
-from ..grid.network import solve
+from ..grid.network import great_circle_km, n1_screen, solve
 from ..grid.state import assess
 from ..grid.topology import topology
 from ..ingest.channels import channels
@@ -275,6 +275,45 @@ async def network(request: Request, p: Principal = Depends(need("view"))):
         for ln in t.lines
     ]
     return {"lines": sorted(lines, key=lambda x: -x["loading"]), "voltage": s.flow.voltage, "islanded": s.flow.islanded, "outaged": s.outaged}
+
+
+@router.get("/network/contingency")
+async def contingency(request: Request, p: Principal = Depends(need("view"))):
+    """N-1 security screen of the live state: every single-line outage, evaluated with LODFs in one pass."""
+    r = rt(request)
+    s = r.state
+    if not s:
+        raise HTTPException(503)
+    t = topology()
+    t0 = time.perf_counter()
+    cons, worst = n1_screen(s.flow.flows, s.outaged)
+    ms = (time.perf_counter() - t0) * 1000
+    km = {ln["id"]: round(great_circle_km(t.bus(ln["from"])["lat"], t.bus(ln["from"])["lon"], t.bus(ln["to"])["lat"], t.bus(ln["to"])["lon"]), 1) for ln in t.lines}
+    ext = {b["id"] for b in t.external}
+    insecure = [c for c in cons if c.worst_loading > 1.0 or (c.islanding and not set(c.islanded) <= ext)]
+    return {
+        "method": "DC LODF screen (all single-line outages)",
+        "solve_ms": round(ms, 2),
+        "secure": not any(c.worst_loading > 1.0 for c in cons),
+        "insecure": len(insecure),
+        "contingencies": [
+            {
+                "line": c.line,
+                "label": t.line_label(c.line),
+                "worst_line": c.worst_line,
+                "worst_label": t.line_label(c.worst_line) if c.worst_line else None,
+                "worst_loading": round(c.worst_loading, 4),
+                "overloads": c.overloads,
+                "islanding": c.islanding,
+                "islanded": list(c.islanded),
+                # a radial line that only cuts off an ISTS tie point loses an import path, not Karnataka load
+                "tie_only": c.islanding and all(t.bus(b).get("external") for b in c.islanded),
+            }
+            for c in cons
+        ],
+        "worst_by_line": {k: round(v, 4) for k, v in worst.items()},
+        "route_km": km,
+    }
 
 
 # ---------------------------------------------------------------- alarms
@@ -631,7 +670,8 @@ async def whatif(body: WhatIfIn, request: Request, p: Principal = Depends(need("
     for g in wind:
         s.gen_output[g["id"]] = max(0.0, s.gen_output[g["id"]] - body.re_drop_mw * 0.3 * s.gen_output[g["id"]] / wsum)
     s.demand_mw = sum(s.bus_load.values())
-    s.state_gen_mw = sum(v for k, v in s.gen_output.items() if next(g for g in t.generators if g["id"] == k)["owner"] != "Central")
+    owner = {g["id"]: g["owner"] for g in t.generators}
+    s.state_gen_mw = sum(v for k, v in s.gen_output.items() if owner[k] != "Central")
     s.drawal_mw = s.demand_mw - s.state_gen_mw
     s.re_mw = sum(s.gen_output[g["id"]] for g in solar + wind)
     s.frequency += body.freq_offset_hz - (body.demand_shock_mw + body.re_drop_mw) / 22000
