@@ -424,7 +424,7 @@ function ParticipantDetail({ p, mv, onDone }: { p: Participant; mv: MV[]; onDone
             <XAxis dataKey="t" tick={{ fontSize: 9 }} minTickGap={40} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
             <RTooltip {...chartTooltip} />
-            <Area type="monotone" dataKey="mw" stroke="#2a5894" fill="#2a5894" fillOpacity={0.08} strokeWidth={1.5} dot={false} name="Metered" isAnimationActive={false} />
+            <Area type="monotone" dataKey="mw" stroke="#5735cf" fill="#5735cf" fillOpacity={0.08} strokeWidth={1.5} dot={false} name="Metered" isAnimationActive={false} />
             {m && (
               <ReferenceLine
                 y={m.baseline_mw}

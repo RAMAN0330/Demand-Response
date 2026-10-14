@@ -206,7 +206,7 @@ function Outcomes({ s }: { s?: Summary }) {
             <ReferenceLine y={0} stroke="#c4ccd5" />
             <RTooltip {...chartTooltip} formatter={(v) => `₹${Number(v).toFixed(2)} L`} />
             <Bar dataKey="avoided" name="DSM avoided" stackId="a" fill="#78c19f" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="payments" name="Payments" stackId="a" fill="#8bb0da" radius={[0, 0, 3, 3]} isAnimationActive={false} />
+            <Bar dataKey="payments" name="Payments" stackId="a" fill="#b1a3f6" radius={[0, 0, 3, 3]} isAnimationActive={false} />
             <Line dataKey="net" name="Net benefit" stroke="#1f6e4e" strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>

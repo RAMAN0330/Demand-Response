@@ -49,7 +49,7 @@ function Substation({ id, stress }: { id: string; stress: number }) {
   const col = loadingColor(stress)
   return (
     <group position={[x, Y, z]}>
-      <mesh position={[0, 0.06, 0]} {...handlers}>
+      <mesh castShadow position={[0, 0.06, 0]} {...handlers}>
         <cylinderGeometry args={[r, r * 1.15, 0.12, 6]} />
         <meshStandardMaterial color="#f6f7f9" emissive={col} emissiveIntensity={0.35} metalness={0.1} roughness={0.6} />
       </mesh>
@@ -57,7 +57,7 @@ function Substation({ id, stress }: { id: string; stress: number }) {
         <cylinderGeometry args={[r * 0.45, r * 0.45, 0.01, 12]} />
         <meshBasicMaterial color={col} toneMapped={false} />
       </mesh>
-      {selected && <PulseRing color="#5c8cc6" radius={0.16} />}
+      {selected && <PulseRing color="#8d76ee" radius={0.16} />}
     </group>
   )
 }
@@ -106,12 +106,12 @@ function GeneratorNode({ g, mw, focused }: { g: Generator; mw: number; focused: 
     <group position={[x, Y, z]} {...handlers}>
       {g.type === 'coal' && (
         <group>
-          <mesh position={[0, 0.05, 0]}>
+          <mesh castShadow position={[0, 0.05, 0]}>
             <boxGeometry args={[0.18, 0.1, 0.12]} />
             <meshStandardMaterial color="#4d5867" roughness={0.8} />
           </mesh>
           {[-0.05, 0.05].map((dx) => (
-            <mesh key={dx} position={[dx, h / 2 + 0.05, -0.02]}>
+            <mesh castShadow key={dx} position={[dx, h / 2 + 0.05, -0.02]}>
               <cylinderGeometry args={[0.022, 0.032, h, 10]} />
               <meshStandardMaterial color="#96a1ae" emissive="#c8622a" emissiveIntensity={0.25 * util} />
             </mesh>
@@ -120,7 +120,7 @@ function GeneratorNode({ g, mw, focused }: { g: Generator; mw: number; focused: 
       )}
       {g.type === 'hydro' && (
         <group>
-          <mesh position={[0, 0.06, 0]}>
+          <mesh castShadow position={[0, 0.06, 0]}>
             <boxGeometry args={[0.22, 0.12, 0.05]} />
             <meshStandardMaterial color="#6a7686" />
           </mesh>
@@ -132,11 +132,11 @@ function GeneratorNode({ g, mw, focused }: { g: Generator; mw: number; focused: 
       )}
       {g.type === 'nuclear' && (
         <group>
-          <mesh position={[0, 0.06, 0]}>
+          <mesh castShadow position={[0, 0.06, 0]}>
             <cylinderGeometry args={[0.08, 0.08, 0.12, 20]} />
             <meshStandardMaterial color="#dde2e8" />
           </mesh>
-          <mesh position={[0, 0.12, 0]}>
+          <mesh castShadow position={[0, 0.12, 0]}>
             <sphereGeometry args={[0.08, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
             <meshStandardMaterial color="#eceff3" emissive="#8b7ccd" emissiveIntensity={0.3} />
           </mesh>
@@ -156,7 +156,7 @@ function GeneratorNode({ g, mw, focused }: { g: Generator; mw: number; focused: 
         <group>
           {[-0.08, 0.08].map((dx, i) => (
             <group key={dx} position={[dx, 0, i * 0.06]}>
-              <mesh position={[0, 0.17, 0]}>
+              <mesh castShadow position={[0, 0.17, 0]}>
                 <cylinderGeometry args={[0.006, 0.01, 0.34, 6]} />
                 <meshStandardMaterial color="#dde2e8" />
               </mesh>
@@ -200,7 +200,7 @@ function LoadNode({ a, focus }: { a: FlexAsset; focus?: { mw: number; status: Fo
   return (
     <group position={[x, Y, z]} {...handlers}>
       {tower ? (
-        <mesh position={[0, h / 2, 0]}>
+        <mesh castShadow position={[0, h / 2, 0]}>
           <boxGeometry args={[0.07, h, 0.07]} />
           <meshStandardMaterial color={meta.color} emissive={meta.color} emissiveIntensity={0.15} />
         </mesh>
@@ -211,7 +211,7 @@ function LoadNode({ a, focus }: { a: FlexAsset; focus?: { mw: number; status: Fo
             [0.035, 0.02],
             [0, -0.04],
           ].map(([dx, dz], i) => (
-            <mesh key={i} position={[dx, (h * (0.6 + i * 0.2)) / 2, dz]}>
+            <mesh castShadow key={i} position={[dx, (h * (0.6 + i * 0.2)) / 2, dz]}>
               <boxGeometry args={[0.04, h * (0.6 + i * 0.2), 0.04]} />
               <meshStandardMaterial color={meta.color} emissive={meta.color} emissiveIntensity={0.15} />
             </mesh>
@@ -288,11 +288,11 @@ export function SldcBeacon() {
     <group position={[x, Y, z]}>
       <mesh ref={ref} position={[0, 0.45, 0]}>
         <cylinderGeometry args={[0.012, 0.03, 0.9, 8]} />
-        <meshBasicMaterial color="#5c8cc6" transparent opacity={0.6} toneMapped={false} />
+        <meshBasicMaterial color="#8d76ee" transparent opacity={0.6} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0.92, 0]}>
         <sphereGeometry args={[0.04, 16, 16]} />
-        <meshBasicMaterial color="#8bb0da" toneMapped={false} />
+        <meshBasicMaterial color="#b1a3f6" toneMapped={false} />
       </mesh>
     </group>
   )

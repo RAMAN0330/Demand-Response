@@ -3,7 +3,7 @@ export type FocusStatus = 'planned' | 'sent' | 'acked' | 'delivering' | 'failed'
 export type Focus = Record<string, { mw: number; status: FocusStatus }>
 
 export const STATUS_COLOR: Record<FocusStatus, string> = {
-  planned: '#5c8cc6',
+  planned: '#8d76ee',
   sent: '#c07e18',
   acked: '#9bbf5a',
   delivering: '#47a37b',

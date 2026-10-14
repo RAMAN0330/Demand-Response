@@ -989,7 +989,7 @@ function PerformanceChart({ d }: { d: Full }) {
         <RTooltip {...chartTooltip} formatter={(v) => `${Number(v).toFixed(0)} MW`} />
         <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
         <Area dataKey="delivered" name="Delivered" stroke="#2a8761" fill="#abdbc3" fillOpacity={0.6} isAnimationActive={false} />
-        <Line dataKey="dispatched" name="Dispatched" stroke="#3a6fb0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+        <Line dataKey="dispatched" name="Dispatched" stroke="#6d4fe3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
         <Line dataKey="target" name="Target" stroke="#c07e18" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
       </ComposedChart>
     </ResponsiveContainer>

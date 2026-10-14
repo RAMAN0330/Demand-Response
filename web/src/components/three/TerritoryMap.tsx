@@ -56,7 +56,7 @@ export interface MapMarker {
   tone: 'info' | 'warn' | 'bad'
 }
 
-const MARKER_COLOR: Record<MapMarker['tone'], string> = { info: '#3a6fb0', warn: '#c07e18', bad: '#b83b3a' }
+const MARKER_COLOR: Record<MapMarker['tone'], string> = { info: '#6d4fe3', warn: '#c07e18', bad: '#b83b3a' }
 
 export interface MapChrome {
   /** full-bleed workspace: no frame, chrome positioned by the page */
@@ -73,7 +73,7 @@ export interface MapChrome {
 export function TerritoryMap({ overlay, className, compact, chrome }: { overlay?: MapOverlay; className?: string; compact?: boolean; chrome?: MapChrome }) {
   const frame = useLive((s) => s.frame)
   const layers = useUI((s) => s.layers)
-  if (!frame) return <div className={cn('grid h-full place-items-center rounded-xl border bg-[#eef1f5] text-sm text-muted-foreground', className)}>Waiting for live state…</div>
+  if (!frame) return <div className={cn('grid h-full place-items-center rounded-xl border bg-[#f3f0fb] text-sm text-muted-foreground', className)}>Waiting for live state…</div>
   return <MapInner frame={frame} overlay={overlay} className={className} compact={compact} layers={layers} chrome={chrome ?? {}} />
 }
 
@@ -145,11 +145,11 @@ function MapInner({
   }, [loading])
 
   return (
-    <div className={cn('relative h-full min-h-[280px] w-full overflow-hidden bg-[#eef1f5]', !chrome.bare && 'rounded-xl border', className)}>
-      <Canvas flat camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={dpr} gl={{ antialias: true }}>
+    <div className={cn('relative h-full min-h-[280px] w-full overflow-hidden bg-[#f3f0fb]', !chrome.bare && 'rounded-xl border', className)}>
+      <Canvas flat shadows="soft" camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={dpr} gl={{ antialias: true }}>
         <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(Math.min(2, window.devicePixelRatio || 1))} flipflops={3} onFallback={() => setDpr(1)} />
-        <color attach="background" args={['#eef1f5']} />
-        <fog attach="fog" args={['#eef1f5', 16, 34]} />
+        <color attach="background" args={['#f3f0fb']} />
+        <fog attach="fog" args={['#f3f0fb', 16, 34]} />
         <Daylight clock={frame.clock} />
         <Suspense fallback={null}>
           <Grid
@@ -157,10 +157,10 @@ function MapInner({
             args={[40, 40]}
             cellSize={0.4}
             cellThickness={0.4}
-            cellColor="#e3e8ee"
+            cellColor="#e6e1f4"
             sectionSize={2}
             sectionThickness={0.8}
-            sectionColor="#d5dce5"
+            sectionColor="#d8d0ee"
             fadeDistance={26}
             infiniteGrid
           />
@@ -213,8 +213,23 @@ function Daylight({ clock }: { clock: string }) {
   return (
     <>
       <ambientLight intensity={0.78 + day * 0.2} color={night ? '#dfe6f3' : '#ffffff'} />
-      <directionalLight position={[Math.cos(a) * 9, 3 + day * 9, 4]} intensity={night ? 0.55 : 0.7 + day * 0.45} color={night ? '#b9c9e6' : day < 0.3 ? '#ffe2bd' : '#ffffff'} />
-      <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#8bb0da" />
+      {/* the sun casts real shadows (towers, plant) whose length and direction follow the time of day */}
+      <directionalLight
+        position={[Math.cos(a) * 9, 3 + day * 9, 4]}
+        intensity={night ? 0.55 : 0.7 + day * 0.45}
+        color={night ? '#b9c9e6' : day < 0.3 ? '#ffe2bd' : '#ffffff'}
+        castShadow={!night}
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        shadow-camera-left={-8}
+        shadow-camera-right={8}
+        shadow-camera-top={8}
+        shadow-camera-bottom={-8}
+        shadow-camera-near={0.5}
+        shadow-camera-far={40}
+      />
+      <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#b1a3f6" />
     </>
   )
 }

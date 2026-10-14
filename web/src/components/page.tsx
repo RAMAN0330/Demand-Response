@@ -60,7 +60,7 @@ const TONE_TILE: Record<Tone | 'none', string> = {
   none: 'bg-slate-50 text-slate-500 ring-slate-100',
 }
 const TONE_BAR: Record<Tone | 'none', string> = { good: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-rose-500', info: 'bg-sky-500', none: 'bg-sky-500' }
-const TONE_STROKE: Record<Tone | 'none', string> = { good: '#2a8761', warn: '#c07e18', bad: '#b83b3a', info: '#2a5894', none: '#5c8cc6' }
+const TONE_STROKE: Record<Tone | 'none', string> = { good: '#2a8761', warn: '#c07e18', bad: '#b83b3a', info: '#5735cf', none: '#8d76ee' }
 
 /** Tiny trend line (no axes) — last N samples of the metric. */
 export function Sparkline({ data, tone = 'none', className }: { data: number[]; tone?: Tone | 'none'; className?: string }) {

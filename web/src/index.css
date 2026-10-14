@@ -4,24 +4,25 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Enterprise palette. Every Tailwind scale the UI uses has one role, so the palette is defined here, once:
-   sky = brand (navy-azure) · slate = neutrals (steel) · emerald = good · amber = warning · rose/red = critical
+   sky = brand (deep indigo → violet, see .claude/skills/ui-style-selection "ADRMS theme") · slate = neutrals (steel) · emerald = good · amber = warning · rose/red = critical
    · violet = secondary accent. Status colours are reserved for meaning (ISA-101 high-performance HMI). */
 @theme {
   /* Elevation scale for floating surfaces: one shadow per level, so every card floats the same way. */
-  --shadow-float-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px -4px rgb(15 23 42 / 0.07);
-  --shadow-float: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 28px -10px rgb(15 23 42 / 0.12);
-  --shadow-float-lg: 0 2px 4px rgb(15 23 42 / 0.05), 0 22px 48px -16px rgb(15 23 42 / 0.22);
-  --color-brand-50: #eef4fa;
-  --color-brand-100: #dbe7f4;
-  --color-brand-200: #b7cfe9;
-  --color-brand-300: #8bb0da;
-  --color-brand-400: #5c8cc6;
-  --color-brand-500: #3a6fb0;
-  --color-brand-600: #2a5894;
-  --color-brand-700: #224778;
-  --color-brand-800: #1c3a61;
-  --color-brand-900: #172f4e;
-  --color-brand-950: #0f1f35;
+  /* tinted with the brand indigo so floating glass reads as lit by the backdrop, not grey */
+  --shadow-float-sm: 0 1px 2px rgb(52 32 143 / 0.05), 0 6px 16px -6px rgb(52 32 143 / 0.12);
+  --shadow-float: 0 1px 2px rgb(52 32 143 / 0.05), 0 14px 34px -12px rgb(52 32 143 / 0.2);
+  --shadow-float-lg: 0 2px 4px rgb(52 32 143 / 0.06), 0 26px 56px -18px rgb(52 32 143 / 0.3);
+  --color-brand-50: #f3f1fe;
+  --color-brand-100: #e7e3fd;
+  --color-brand-200: #d2cafb;
+  --color-brand-300: #b1a3f6;
+  --color-brand-400: #8d76ee;
+  --color-brand-500: #6d4fe3;
+  --color-brand-600: #5735cf;
+  --color-brand-700: #4527b0;
+  --color-brand-800: #34208f;
+  --color-brand-900: #281a6e;
+  --color-brand-950: #180f45;
   --color-steel-50: #f6f7f9;
   --color-steel-100: #eceff3;
   --color-steel-200: #dde2e8;
@@ -158,24 +159,24 @@
 
 :root {
   --radius: 0.75rem;
-  --background: #f3f5f8;
+  --background: #f7f5fd;
   --foreground: #272e37;
   --card: #ffffff;
   --card-foreground: #272e37;
   --popover: #ffffff;
   --popover-foreground: #272e37;
-  --primary: #2a5894;
+  --primary: #34208f;
   --primary-foreground: #ffffff;
-  --secondary: #eceff3;
+  --secondary: #efecf9;
   --secondary-foreground: #3a4350;
-  --muted: #eceff3;
+  --muted: #efecf9;
   --muted-foreground: #6a7686;
-  --accent: #eef4fa;
-  --accent-foreground: #224778;
+  --accent: #f3f1fe;
+  --accent-foreground: #34208f;
   --destructive: #b83b3a;
-  --border: #dde2e8;
-  --input: #c4ccd5;
-  --ring: #5c8cc6;
+  --border: #e2ddf0;
+  --input: #cbc4e0;
+  --ring: #8d76ee;
   --success: #2a8761;
   --warning: #c07e18;
 }
@@ -251,17 +252,27 @@
   scrollbar-color: oklch(0.6 0.03 255 / 30%) transparent;
 }
 
-/* Spatial backdrop: soft light pools and a faint ground grid behind glass panels. */
+/* Backdrop: lavender wash with violet and peach light pools and a faint 32 px grid, so glass has something to frost. */
 .spatial-backdrop {
   background-color: var(--background);
   background-image:
-    radial-gradient(60rem 40rem at 12% -10%, oklch(0.93 0.05 230 / 0.55), transparent 60%), radial-gradient(50rem 36rem at 95% 110%, oklch(0.94 0.05 165 / 0.5), transparent 60%),
-    linear-gradient(to right, oklch(0.6 0.03 250 / 0.06) 1px, transparent 1px), linear-gradient(to bottom, oklch(0.6 0.03 250 / 0.06) 1px, transparent 1px);
+    radial-gradient(56rem 38rem at 8% -12%, oklch(0.88 0.08 295 / 0.55), transparent 62%), radial-gradient(48rem 34rem at 100% 0%, oklch(0.93 0.06 60 / 0.5), transparent 60%),
+    radial-gradient(52rem 36rem at 70% 115%, oklch(0.9 0.06 285 / 0.45), transparent 60%), linear-gradient(to right, oklch(0.55 0.08 290 / 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.55 0.08 290 / 0.07) 1px, transparent 1px);
   background-size:
     auto,
     auto,
-    40px 40px,
-    40px 40px;
+    auto,
+    32px 32px,
+    32px 32px;
+}
+
+/* Accent text: violet → orange gradient (brand wordmark, hero words). Never on status values. */
+@utility text-gradient {
+  background-image: linear-gradient(95deg, #5735cf 0%, #9b4dca 48%, #e0883a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ── Floating surfaces ────────────────────────────────────────────────────────────────────────────────
@@ -270,33 +281,37 @@
      surface-panel  page-level container (16 px radius, float shadow)
      surface-tile   KPI tile / list card inside a page (12 px radius, small float shadow)
      surface-chip   map controls, legends, badges floating over the 3D scene (12 px radius)
-   Translucency keeps the spatial backdrop visible; text-bearing surfaces stay ≥ 85 % opaque for contrast,
+   Glassmorphism: the lavender backdrop shows through; panels stay ≥ 66 % white (≥ 84 % over the 3D scene) so text keeps AA contrast,
    and fall back to opaque white where backdrop-filter is unsupported. */
 @utility surface-panel {
   border-radius: 1rem;
-  border: 1px solid rgb(255 255 255 / 0.7);
-  background-color: rgb(255 255 255 / 0.86);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  background-color: rgb(255 255 255 / 0.66);
   box-shadow:
     var(--shadow-float),
-    0 0 0 1px rgb(15 23 42 / 0.045);
-  backdrop-filter: blur(12px) saturate(1.2);
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 1px rgb(52 32 143 / 0.05);
+  backdrop-filter: blur(18px) saturate(1.7);
 }
 @utility surface-tile {
   border-radius: 0.75rem;
-  border: 1px solid rgb(255 255 255 / 0.7);
-  background-color: rgb(255 255 255 / 0.9);
+  border: 1px solid rgb(255 255 255 / 0.8);
+  background-color: rgb(255 255 255 / 0.72);
   box-shadow:
     var(--shadow-float-sm),
-    0 0 0 1px rgb(15 23 42 / 0.045);
-  backdrop-filter: blur(12px) saturate(1.2);
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 1px rgb(52 32 143 / 0.05);
+  backdrop-filter: blur(16px) saturate(1.6);
 }
+/* chips float over the 3D scene, which is busier than the backdrop, so they stay more opaque */
 @utility surface-chip {
   border-radius: 0.75rem;
-  background-color: rgb(255 255 255 / 0.9);
+  background-color: rgb(255 255 255 / 0.84);
   box-shadow:
     var(--shadow-float-sm),
-    0 0 0 1px rgb(15 23 42 / 0.08);
-  backdrop-filter: blur(10px);
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 1px rgb(52 32 143 / 0.08);
+  backdrop-filter: blur(14px) saturate(1.5);
 }
 @supports not (backdrop-filter: blur(1px)) {
   .surface-panel,

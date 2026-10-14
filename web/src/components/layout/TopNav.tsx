@@ -109,7 +109,7 @@ export function TopNav() {
   const on = 'text-sky-700 after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-t-full after:bg-sky-600'
 
   return (
-    <header className="relative flex h-13 shrink-0 items-stretch gap-3 border-b border-slate-200/80 bg-white/90 px-3 text-slate-800 shadow-[0_6px_20px_-14px_rgba(23,47,78,0.35)] backdrop-blur">
+    <header className="relative flex h-13 shrink-0 items-stretch gap-3 border-b border-white/70 bg-white/70 px-3 text-slate-800 shadow-[0_8px_24px_-16px_rgba(52,32,143,0.35)] backdrop-blur-xl backdrop-saturate-150">
       {/* hairline highlight along the bottom edge */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-400/50 to-transparent" />
       <button onClick={() => go('command')} className="flex items-center pr-3" aria-label="ADRMS — home">
