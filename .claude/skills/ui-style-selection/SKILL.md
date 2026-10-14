@@ -79,7 +79,7 @@ ADRMS uses **Spatial UI + Glassmorphism**: the lavender backdrop and the 3D map 
 - `surface-tile`: 12 px radius, 72 % white, `blur(16px)`.
 - `surface-chip`: for controls over the 3D scene, 84 % white, because the scene is busier than the backdrop.
 - Shadows are tinted with the brand indigo (`rgb(52 32 143 / …)`), never neutral grey.
-- The top bar is glass too: `bg-white/70 backdrop-blur-xl`.
+- The top bar is a floating, round-edged glass bar: `surface-panel` inset 12 px from the edges (`mx-3 mt-2.5`), with the backdrop showing around it.
 - Opaque white fallback is used when `backdrop-filter` is unsupported. Don't mix `surface-*` with `rounded-*`, `ring-*` or `shadow-*`; signal state with a `!border-…` colour instead.
 
 **Rules**
