@@ -14,6 +14,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { OperationsPage } from '@/pages/OperationsPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { SheddingPage } from '@/pages/SheddingPage'
+import { SimulatorPage } from '@/pages/SimulatorPage'
 import { ResourcesPage } from '@/pages/ResourcesPage'
 import { WhatIfPage } from '@/pages/WhatIfPage'
 import { startTokenKeeper, useAuth } from '@/store/useAuth'
@@ -73,6 +74,7 @@ function Shell() {
         {page === 'alarms' && <AlarmsPage />}
         {page === 'analysis' && <AnalysisPage />}
         {page === 'whatif' && <WhatIfPage />}
+        {page === 'simulator' && <SimulatorPage />}
         {page === 'resources' && <ResourcesPage />}
         {page === 'reports' && <ReportsPage />}
         {page === 'admin' && <AdminPage />}

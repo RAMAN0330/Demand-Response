@@ -1,6 +1,6 @@
-import { Suspense, useMemo, useRef, type ReactNode, type Ref } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Grid } from '@react-three/drei'
+import { Grid, PerformanceMonitor } from '@react-three/drei'
 import { Battery, Cable, Diamond, Factory, Layers, Map as MapIcon, Mountain, RadioTower, Tag, Waves, X, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -44,7 +44,19 @@ export interface MapOverlay {
   caption?: string
   /** participants to light up regardless of selection (e.g. a programme's members) */
   lit?: string[]
+  /** labelled beacons at arbitrary places (e.g. simulator drills); tone picks the ISA-101 state colour */
+  markers?: MapMarker[]
 }
+
+export interface MapMarker {
+  id: string
+  lon: number
+  lat: number
+  label: string
+  tone: 'info' | 'warn' | 'bad'
+}
+
+const MARKER_COLOR: Record<MapMarker['tone'], string> = { info: '#3a6fb0', warn: '#c07e18', bad: '#b83b3a' }
 
 export interface MapChrome {
   /** full-bleed workspace: no frame, chrome positioned by the page */
@@ -113,7 +125,15 @@ function MapInner({
   const hoverRef = useRef<HTMLDivElement>(null)
   const hovered = useUI((s) => s.hovered)
   const hoverSel = hovered && !(selection && selection.kind === hovered.kind && selection.id === hovered.id) ? hovered : null
-  const labels = useMapLabels(layers, frame.injections, focus)
+  const labels = useMapLabels(layers, frame.injections, focus, overlay?.markers)
+  const markerGroups = useMemo(() => {
+    const g: Partial<Record<MapMarker['tone'], MapMarker[]>> = {}
+    for (const m of overlay?.markers ?? []) (g[m.tone] ??= []).push(m)
+    return Object.entries(g) as [MapMarker['tone'], MapMarker[]][]
+  }, [overlay?.markers])
+  // adaptive resolution: drop to 1× device pixels when the frame rate sags, climb back when it recovers
+  const [dpr, setDpr] = useState(() => Math.min(2, window.devicePixelRatio || 1))
+  useMapKeys()
   const stress = useMemo(() => {
     const out: Record<string, number> = {}
     for (const l of LINES) {
@@ -126,12 +146,11 @@ function MapInner({
 
   return (
     <div className={cn('relative h-full min-h-[280px] w-full overflow-hidden bg-[#eef1f5]', !chrome.bare && 'rounded-xl border', className)}>
-      <Canvas flat camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={[1, 2]} gl={{ antialias: true }}>
+      <Canvas flat camera={{ position: [0.4, 11.2, 8.8], fov: 42, near: 0.05, far: 200 }} dpr={dpr} gl={{ antialias: true }}>
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(Math.min(2, window.devicePixelRatio || 1))} flipflops={3} onFallback={() => setDpr(1)} />
         <color attach="background" args={['#eef1f5']} />
         <fog attach="fog" args={['#eef1f5', 16, 34]} />
-        <ambientLight intensity={0.95} />
-        <directionalLight position={[5, 10, 4]} intensity={1.1} />
-        <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#8bb0da" />
+        <Daylight clock={frame.clock} />
         <Suspense fallback={null}>
           <Grid
             position={[0, -0.001, 0]}
@@ -157,6 +176,9 @@ function MapInner({
           <SldcBeacon />
           {overlay?.wave && <CommandWave targets={overlay.wave.targets} phase={overlay.wave.phase} />}
           {beacons.length > 0 && <Beacons points={beacons} />}
+          {markerGroups.map(([tone, pts]) => (
+            <Beacons key={tone} points={pts} color={MARKER_COLOR[tone]} />
+          ))}
           <CameraRig />
           <LabelProjector labels={labels} layer={labelLayer} />
           <AnchorProjector point={anchorPoint(selection, Object.keys(overlay?.focus ?? {}))} el={cardRef} />
@@ -175,6 +197,42 @@ function MapInner({
       )}
     </div>
   )
+}
+
+/**
+ * Sun follows the grid clock: azimuth sweeps east → west, elevation peaks at noon. Deliberately subtle so the
+ * ISA-101 light background and state colours stay legible at night.
+ */
+function Daylight({ clock }: { clock: string }) {
+  const [hh = 12, mm = 0] = clock.split(':').map(Number)
+  const h = hh + mm / 60
+  const a = (Math.PI * (h - 6)) / 12 // 0 at sunrise, π at sunset
+  const elev = Math.sin(a)
+  const day = Math.max(0, elev)
+  const night = elev < 0
+  return (
+    <>
+      <ambientLight intensity={0.78 + day * 0.2} color={night ? '#dfe6f3' : '#ffffff'} />
+      <directionalLight position={[Math.cos(a) * 9, 3 + day * 9, 4]} intensity={night ? 0.55 : 0.7 + day * 0.45} color={night ? '#b9c9e6' : day < 0.3 ? '#ffe2bd' : '#ffffff'} />
+      <directionalLight position={[-6, 4, -5]} intensity={0.35} color="#8bb0da" />
+    </>
+  )
+}
+
+/** R resets the view to the whole state; Esc clears the selection. Ignored while typing in a field. */
+function useMapKeys() {
+  const setCamera = useUI((s) => s.setCamera)
+  const select = useUI((s) => s.select)
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return
+      if (e.key === 'Escape') select(null)
+      else if (e.key === 'r' || e.key === 'R') setCamera('STATE')
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [setCamera, select])
 }
 
 const CAMS: { id: CameraPreset; label: string }[] = [
@@ -465,7 +523,7 @@ const AnchoredCard = ({
   )
 }
 
-function useMapLabels(layers: MapLayers, injections: Record<string, number>, focus: Focus): MapLabel[] {
+function useMapLabels(layers: MapLayers, injections: Record<string, number>, focus: Focus, markers?: MapMarker[]): MapLabel[] {
   return useMemo(() => {
     const out: MapLabel[] = []
     const at = (lon: number, lat: number, y: number): [number, number, number] => {
@@ -519,6 +577,17 @@ function useMapLabels(layers: MapLayers, injections: Record<string, number>, foc
         ),
       })
     }
+    for (const m of markers ?? [])
+      out.push({
+        id: `mk-${m.id}`,
+        pos: at(m.lon, m.lat, STATE_TOP + 1.0),
+        priority: 20,
+        node: (
+          <div className="rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap text-white shadow" style={{ background: MARKER_COLOR[m.tone] }}>
+            {m.label}
+          </div>
+        ),
+      })
     return out
-  }, [layers, injections, focus])
+  }, [layers, injections, focus, markers])
 }

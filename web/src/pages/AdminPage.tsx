@@ -16,6 +16,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { UsersAdmin } from '@/components/auth/UsersAdmin'
 import { useAuth } from '@/store/useAuth'
+import { useUI } from '@/store/useUI'
 import { clockS, useLive } from '@/store/useLive'
 
 export function AdminPage() {
@@ -593,6 +594,9 @@ function SimulatorTab() {
       <div className="space-y-3">
         <div className="text-[11px] text-slate-500">
           Inject field disturbances into the simulated SCADA/EMS stand-in to drill operators and verify the autonomous loop end-to-end. Not available against live KPTCL channels.
+          <button className="mt-1 block font-medium text-sky-700 hover:underline" onClick={() => useUI.getState().go('simulator')}>
+            Open the Grid simulator for scenarios, N-1 security and the 3D view →
+          </button>
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Disturbance</Label>

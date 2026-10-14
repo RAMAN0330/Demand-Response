@@ -15,6 +15,7 @@ import {
   Power,
   Receipt,
   Settings2,
+  Siren,
   ShieldAlert,
   ShieldCheck,
   UserCog,
@@ -54,6 +55,7 @@ const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
 
 const MORE: { id: Page; label: string; hint: string; icon: typeof LayoutDashboard; perm?: string }[] = [
   { id: 'whatif', label: 'What-if sandbox', hint: 'Test a DR event before it happens — no dispatch', icon: FlaskConical, perm: 'whatif' },
+  { id: 'simulator', label: 'Grid simulator', hint: 'Training drills, N-1 security and system response on the 3D network', icon: Siren },
   { id: 'reports', label: 'Settlement & Audit', hint: 'Baseline, delivery, payments, audit trail', icon: Receipt },
   { id: 'admin', label: 'Administration', hint: 'Autonomy policy, data sources, simulator, users', icon: Settings2 },
 ]

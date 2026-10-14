@@ -25,6 +25,7 @@ from ..grid.state import assess
 from ..grid.topology import topology
 from ..ingest.channels import channels
 from ..ingest.field import Disturbance
+from ..ingest.scenarios import BY_ID as SCENARIO_BY_ID, SCENARIOS
 from ..security.auth import DEMO_USERS, POLICY, ROLE_LABEL, ROLES, Principal, decode_token
 from ..security.service import AuthError
 
@@ -811,6 +812,64 @@ async def del_dist(dist_id: str, request: Request, p: Principal = Depends(need("
         ok = r.field.clear(dist_id)
         r.audit.append(r.clock.now(), "SYSTEM", p.username, f"Simulator disturbance ended: {dist_id}", dist_id)
     return {"ok": ok}
+
+
+@router.delete("/admin/simulator/disturbances")
+async def clear_all_dist(request: Request, p: Principal = Depends(need("simulator"))):
+    """End every active drill and cancel every scheduled one (operator "all clear")."""
+    r = rt(request)
+    async with r.lock:
+        now = r.clock.now()
+        ids = [d.id for d in r.field.disturbances if d.active(now) or d.start > now]
+        for i in ids:
+            r.field.clear(i)
+        if ids:
+            r.audit.append(now, "SYSTEM", p.username, f"Simulator all clear: {len(ids)} disturbance(s) ended", ",".join(ids))
+    return {"ended": ids}
+
+
+@router.get("/admin/simulator/scenarios")
+async def list_scenarios(p: Principal = Depends(need("view"))):
+    return [s.to_dict() for s in SCENARIOS]
+
+
+@router.post("/admin/simulator/scenarios/{scenario_id}")
+async def run_scenario(scenario_id: str, request: Request, p: Principal = Depends(need("simulator"))):
+    sc = SCENARIO_BY_ID.get(scenario_id)
+    if not sc:
+        raise HTTPException(404, "Unknown scenario")
+    r = rt(request)
+    async with r.lock:
+        now = r.clock.now()
+        made = [
+            r.field.add(Disturbance(s.kind, dict(s.params), now + s.at_min * 60, s.duration_min * 60, s.ramp_min * 60, s.label, source=p.username))
+            for s in sc.steps
+        ]
+        r.audit.append(now, "SYSTEM", p.username, f"Simulator scenario launched: {sc.title} ({len(made)} steps)", ",".join(d.id for d in made))
+    return {"scenario": sc.id, "disturbances": [d.to_dict(now) for d in made]}
+
+
+class ClockIn(BaseModel):
+    time_scale: float = Field(..., ge=1, le=120)
+
+
+@router.get("/admin/simulator/clock")
+async def get_clock(request: Request, p: Principal = Depends(need("view"))):
+    r = rt(request)
+    return {"time_scale": r.clock.time_scale, "adjustable": r.kptcl is None, "now": r.clock.now()}
+
+
+@router.put("/admin/simulator/clock")
+async def set_clock(body: ClockIn, request: Request, p: Principal = Depends(need("simulator"))):
+    """Simulation speed (simulated seconds per real second). Fixed at 1× when live KPTCL channels are in use."""
+    r = rt(request)
+    if r.kptcl is not None:
+        raise HTTPException(409, "Simulation speed is fixed at real time while live KPTCL channels are in use")
+    async with r.lock:
+        old = r.clock.time_scale
+        r.clock.set_scale(body.time_scale)
+        r.audit.append(r.clock.now(), "SYSTEM", p.username, f"Simulation speed changed {old:g}× → {body.time_scale:g}×", "clock")
+    return {"time_scale": r.clock.time_scale, "adjustable": True, "now": r.clock.now()}
 
 
 @router.get("/admin/config/dsm")
