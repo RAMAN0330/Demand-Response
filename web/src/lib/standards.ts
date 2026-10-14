@@ -7,8 +7,9 @@ export const IEGC = {
   fNominal: 50,
   fLow: 49.9,
   fHigh: 50.05,
-  /** application threshold for immediate emergency action (not an IEGC band edge) */
+  /** application thresholds for immediate emergency action (not IEGC band edges) */
   fEmergency: 49.8,
+  fHighEmergency: 50.1,
 } as const
 
 /** A day is settled in 96 time blocks of 15 minutes (CERC DSM Regulations, 2024). */

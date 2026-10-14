@@ -1,4 +1,5 @@
 import type { Severity } from '@/data/types'
+import { IEGC } from '@/lib/standards'
 
 export const SEVERITY_STYLE: Record<Severity, string> = {
   NORMAL: 'bg-emerald-50 text-emerald-700 ring-emerald-300/70',
@@ -6,9 +7,13 @@ export const SEVERITY_STYLE: Record<Severity, string> = {
   EMERGENCY: 'bg-rose-50 text-rose-700 ring-rose-300 animate-pulse',
 }
 
+/** True outside the emergency thresholds / outside the IEGC 2023 band. */
+export const freqBad = (f: number) => f < IEGC.fEmergency || f > IEGC.fHighEmergency
+export const freqWarn = (f: number) => f < IEGC.fLow || f > IEGC.fHigh
+
 export function freqClass(f: number) {
-  if (f < 49.8 || f > 50.1) return 'text-red-500'
-  if (f < 49.9 || f > 50.05) return 'text-amber-600'
+  if (freqBad(f)) return 'text-red-500'
+  if (freqWarn(f)) return 'text-amber-600'
   return 'text-emerald-600'
 }
 

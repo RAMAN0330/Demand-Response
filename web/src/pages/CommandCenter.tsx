@@ -37,7 +37,7 @@ import { api } from '@/lib/api'
 import { capacity, useParticipants } from '@/lib/dr'
 import { fmtMW, fmtRs } from '@/lib/geo'
 import { alarmSelection, worldOf, type Sel } from '@/lib/spatial'
-import { chartTooltip, signed } from '@/lib/ui'
+import { chartTooltip, freqBad, freqWarn, signed } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
 import { clock, clockS, useLive } from '@/store/useLive'
@@ -100,7 +100,7 @@ export function CommandCenter() {
     <>
       {sel.kind === 'asset' && (
         <Button size="sm" variant="outline" className="h-7 bg-white/70" onClick={() => go('resources')}>
-          <Users className="size-3.5" /> Programs
+          <Users className="size-3.5" /> Programmes
         </Button>
       )}
       {(sel.kind === 'line' || sel.kind === 'bus' || sel.kind === 'channel' || sel.kind === 'station' || sel.kind === 'gen') && (
@@ -266,7 +266,7 @@ function DrStrip({ open, onToggle }: { open: boolean; onToggle: () => void }) {
           icon={<IndianRupee />}
           label={ev ? `Event ${ev.id}` : 'Programme value'}
           value={ev ? ev.state.replace('_', ' ') : fmtRs(rep?.net_benefit_rs ?? 0)}
-          sub={ev ? `${fmtMW(ev.planned_mw)} planned · rev ${ev.revision}` : `${rep?.decisions ?? 0} events settled · ${fmtRs(rep?.avoided_dsm_rs ?? 0)} penalties avoided`}
+          sub={ev ? `${fmtMW(ev.planned_mw)} planned · rev ${ev.revision}` : `${rep?.decisions ?? 0} events settled · ${fmtRs(rep?.avoided_dsm_rs ?? 0)} DSM charges avoided`}
           tone={ev ? (ev.state === 'AWAITING_APPROVAL' ? 'warn' : 'info') : 'good'}
           onClick={() => go(ev ? 'decisions' : 'reports', ev?.id)}
         />
@@ -294,8 +294,8 @@ function GridNeedCard({ className, delivering, onOpen }: { className: string; de
   const ring = sev === 'EMERGENCY' ? 'ring-2 ring-rose-300' : sev === 'ALERT' ? 'ring-2 ring-amber-300' : ''
   const action = balanced ? 'Within band — no action needed' : dir === 'UP' ? 'Reduce load / add supply' : 'Increase load / back down supply'
   const drawal = f.drawal - f.schedule
-  const fBad = f.frequency < 49.8 || f.frequency > 50.1
-  const fWarn = f.frequency < 49.9 || f.frequency > 50.05
+  const fBad = freqBad(f.frequency)
+  const fWarn = freqWarn(f.frequency)
   return (
     <button onClick={onOpen} className={cn('flex min-w-0 gap-3 rounded-xl border px-3 py-2 text-left shadow-md transition hover:shadow-lg', className, ring)}>
       <div className="flex min-w-0 flex-1 flex-col justify-between gap-1">

@@ -165,7 +165,8 @@ export function AnalysisPage() {
               <XAxis dataKey="t" tick={{ fontSize: 10, fill: '#96a1ae' }} minTickGap={40} />
               <YAxis yAxisId="f" domain={[49.75, 50.15]} tick={{ fontSize: 10, fill: '#96a1ae' }} width={40} />
               <YAxis yAxisId="a" orientation="right" tick={{ fontSize: 10, fill: '#96a1ae' }} width={40} />
-              <ReferenceLine yAxisId="f" y={49.9} stroke="#e6b45a" strokeDasharray="3 3" />
+              <ReferenceLine yAxisId="f" y={IEGC.fLow} stroke="#e6b45a" strokeDasharray="3 3" />
+              <ReferenceLine yAxisId="f" y={IEGC.fHigh} stroke="#e6b45a" strokeDasharray="3 3" />
               <RTooltip {...chartTooltip} />
               <Legend {...legend} />
               <Line yAxisId="f" dataKey="frequency" name="Frequency Hz (left)" stroke="#3a6fb0" dot={false} isAnimationActive={false} />

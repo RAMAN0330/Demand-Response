@@ -46,7 +46,7 @@ const fmtAge = (s: number | null | undefined) => (s == null ? 'never' : s < 60 ?
 const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'command', label: 'Overview', icon: LayoutDashboard },
   { id: 'decisions', label: 'DR Events', icon: Zap },
-  { id: 'resources', label: 'Programs', icon: Users },
+  { id: 'resources', label: 'Programmes', icon: Users },
   { id: 'operations', label: 'Grid', icon: Network },
   { id: 'shedding', label: 'Load Rotation', icon: Power },
   { id: 'analysis', label: 'Forecast', icon: LineChart },

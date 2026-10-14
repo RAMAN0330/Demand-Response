@@ -629,7 +629,7 @@ Alarm lifecycle:
 | Load Rotation | Uncovered OD vs limit | §7 trigger: residual vs DSM band |
 | Load Rotation | Fairness, max x/120 | §7 |
 | Load Rotation | Group tooltip F, order reasons, metered vs planned relief | §7 |
-| Programs → C&I | Offers, baseline vs meter, M&V | §11 |
+| Programmes → C&I | Offers, baseline vs meter, M&V | §11 |
 | DR Events → Coordination | Lifecycle, shortage ledger | §11 |
 | What-if → Shortage & rotation | Three cases | §11 |
 | Forecast | ACE / Demand / RE next block | P50 for block 1 (§4); sparkline = P50 over the 8-block horizon |

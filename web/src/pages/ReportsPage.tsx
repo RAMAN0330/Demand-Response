@@ -13,7 +13,7 @@ import { ASSET_BY_ID } from '@/data/topology'
 import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
 import { fmtRs } from '@/lib/geo'
-import { fmtEnergy } from '@/lib/standards'
+import { fmtEnergy, GLOSSARY, REFERENCES } from '@/lib/standards'
 import { chartTooltip } from '@/lib/ui'
 import { clockS } from '@/store/useLive'
 import { useUI } from '@/store/useUI'
@@ -104,6 +104,7 @@ export function ReportsPage() {
             { id: 'outcomes', label: 'Event settlement', content: <Outcomes s={s ?? undefined} /> },
             { id: 'reliability', label: 'Participant reliability', content: <Reliability rel={s?.reliability ?? {}} /> },
             { id: 'audit', label: 'Audit trail', content: <Audit /> },
+            { id: 'standards', label: 'Standards & glossary', content: <Standards /> },
           ]}
         />
       </Panel>
@@ -305,6 +306,41 @@ function Audit() {
             ))}
           </TableBody>
         </Table>
+      </div>
+    </div>
+  )
+}
+
+/** Instruments the console follows and the terms it uses, so settlement reports can be read against them. */
+function Standards() {
+  return (
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+      <div className="min-h-0 overflow-y-auto">
+        <div className="eyebrow mb-2">Regulations and standards applied</div>
+        <ul className="space-y-1.5">
+          {REFERENCES.map((r) => (
+            <li key={r.title} className="surface-tile flex gap-2.5 p-2.5">
+              <Badge variant="info" className="h-5 w-12 shrink-0">
+                {r.body}
+              </Badge>
+              <div className="min-w-0 leading-tight">
+                <div className="text-xs font-medium text-slate-800">{r.title}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{r.applies}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="min-h-0 overflow-y-auto">
+        <div className="eyebrow mb-2">Glossary</div>
+        <dl className="divide-y divide-slate-200/70">
+          {GLOSSARY.map((g) => (
+            <div key={g.term} className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 py-1.5 text-xs">
+              <dt className="font-semibold text-slate-700">{g.term}</dt>
+              <dd className="text-slate-600">{g.def}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </div>
   )
