@@ -83,7 +83,7 @@ function BrandPanel() {
     [RefreshCcw, 'Load rotation', 'last: fair, limited, always approved'],
   ]
   return (
-    <div className="relative hidden overflow-hidden bg-gradient-to-br from-[#14304f] via-[#1d4472] to-[#2a5894] text-white lg:flex lg:flex-col">
+    <div className="relative hidden overflow-hidden bg-gradient-to-br from-[#1b1060] via-[#2a1a9e] to-[#5735cf] text-white lg:flex lg:flex-col">
       <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07]" aria-hidden>
         <defs>
           <pattern id="login-grid" width="36" height="36" patternUnits="userSpaceOnUse">
@@ -146,7 +146,7 @@ function PeakCurve() {
   return (
     <svg viewBox="0 0 400 120" className="mt-6 mb-4 w-full max-w-md" aria-hidden>
       <path d="M0 104H400" stroke="white" strokeOpacity=".15" />
-      <path d="M0 92C60 92 90 86 130 60S190 8 210 8 260 40 290 62 350 92 400 92" fill="none" stroke="#b7cfe9" strokeOpacity=".55" strokeWidth="1.6" strokeDasharray="3 4" />
+      <path d="M0 92C60 92 90 86 130 60S190 8 210 8 260 40 290 62 350 92 400 92" fill="none" stroke="#d2cafb" strokeOpacity=".55" strokeWidth="1.6" strokeDasharray="3 4" />
       <path
         d="M0 92C60 92 90 86 130 60L150 46H262L290 62C320 80 350 92 400 92"
         fill="none"

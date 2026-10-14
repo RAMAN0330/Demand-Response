@@ -10,6 +10,11 @@ export function project(lon: number, lat: number): [number, number] {
   return [(lon - LON0) * K * COS, -(lat - LAT0) * K]
 }
 
+/** lon/lat for a world [x, z] (inverse of `project`) */
+export function unproject(x: number, z: number): [number, number] {
+  return [x / (K * COS) + LON0, LAT0 - z / K]
+}
+
 /** 2D shape coords (pre-rotation) for the extruded state outline */
 export function shapeXY(lon: number, lat: number): [number, number] {
   return [(lon - LON0) * K * COS, (lat - LAT0) * K]

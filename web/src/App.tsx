@@ -64,9 +64,9 @@ function Shell() {
     )
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="spatial-backdrop flex h-full flex-col overflow-hidden">
       <TopNav />
-      <main key={page} className={cn('min-h-0 flex-1 overflow-hidden animate-in fade-in duration-200', page === 'command' ? 'p-0' : 'spatial-backdrop p-3')}>
+      <main key={page} className={cn('min-h-0 flex-1 overflow-hidden animate-in fade-in duration-200', page === 'command' ? 'pt-2.5' : 'p-3')}>
         {page === 'command' && <CommandCenter />}
         {page === 'operations' && <OperationsPage />}
         {page === 'decisions' && <DecisionsPage />}

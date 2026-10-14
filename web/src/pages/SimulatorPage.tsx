@@ -557,7 +557,7 @@ function ResponseChart() {
         <ReferenceLine yAxisId="f" y={IEGC.fHigh} stroke="#e6b45a" strokeDasharray="3 3" />
         <RTooltip {...chartTooltip} />
         <Legend {...legend} />
-        <Line yAxisId="f" dataKey="frequency" name="Frequency Hz" stroke="#3a6fb0" dot={false} isAnimationActive={false} />
+        <Line yAxisId="f" dataKey="frequency" name="Frequency Hz" stroke="#6d4fe3" dot={false} isAnimationActive={false} />
         <Line yAxisId="a" dataKey="ace" name="ACE MW (right)" stroke="#7160b8" dot={false} isAnimationActive={false} />
         <Line yAxisId="a" dataKey="deviation" name="Deviation MW (right)" stroke="#c8622a" strokeDasharray="4 3" dot={false} isAnimationActive={false} />
       </LineChart>

@@ -151,8 +151,8 @@ export function AnalysisPage() {
               <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: '#96a1ae' }} width={40} />
               <RTooltip {...chartTooltip} />
               <Legend {...legend} />
-              <Area yAxisId="d" dataKey="demandBand" stroke="none" fill="#b7cfe988" isAnimationActive={false} legendType="none" />
-              <Line yAxisId="d" dataKey="demand" name="Demand P50 (left)" stroke="#2a5894" strokeWidth={2} dot={false} isAnimationActive={false} />
+              <Area yAxisId="d" dataKey="demandBand" stroke="none" fill="#d2cafb88" isAnimationActive={false} legendType="none" />
+              <Line yAxisId="d" dataKey="demand" name="Demand P50 (left)" stroke="#5735cf" strokeWidth={2} dot={false} isAnimationActive={false} />
               <Area yAxisId="r" dataKey="reBand" stroke="none" fill="#c2d99a88" isAnimationActive={false} legendType="none" />
               <Line yAxisId="r" dataKey="re" name="Renewables P50 (right)" stroke="#5f8a2e" strokeWidth={2} dot={false} isAnimationActive={false} />
             </ComposedChart>
@@ -169,7 +169,7 @@ export function AnalysisPage() {
               <ReferenceLine yAxisId="f" y={IEGC.fHigh} stroke="#e6b45a" strokeDasharray="3 3" />
               <RTooltip {...chartTooltip} />
               <Legend {...legend} />
-              <Line yAxisId="f" dataKey="frequency" name="Frequency Hz (left)" stroke="#3a6fb0" dot={false} isAnimationActive={false} />
+              <Line yAxisId="f" dataKey="frequency" name="Frequency Hz (left)" stroke="#6d4fe3" dot={false} isAnimationActive={false} />
               <Line yAxisId="a" dataKey="ace" name="ACE MW (right)" stroke="#7160b8" dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>

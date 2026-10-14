@@ -200,7 +200,7 @@ export function CameraRig() {
 }
 
 /** Light beams over affected participants (selection context): a soft column plus a pulsing ground ring. */
-export function Beacons({ points, color = '#3a6fb0' }: { points: { id: string; lon: number; lat: number }[]; color?: string }) {
+export function Beacons({ points, color = '#6d4fe3' }: { points: { id: string; lon: number; lat: number }[]; color?: string }) {
   const rings = useRef<(THREE.Mesh | null)[]>([])
   useFrame(({ clock }) => {
     rings.current.forEach((m, i) => {

@@ -87,7 +87,7 @@ export function EventTimeline({ pb, onClose }: { pb: Playback; onClose: () => vo
               <XAxis dataKey="t" type="number" domain={[start, end]} hide />
               <YAxis hide domain={[0, 'dataMax']} />
               <Area dataKey="delivered" stroke="#2a8761" fill="#abdbc3" fillOpacity={0.7} isAnimationActive={false} />
-              <Line dataKey="dispatched" stroke="#3a6fb0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+              <Line dataKey="dispatched" stroke="#6d4fe3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
               <Line dataKey="target" stroke="#c07e18" strokeDasharray="4 3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>

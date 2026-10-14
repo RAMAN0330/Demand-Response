@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BUS_BY_ID, LINE_BY_ID, LINES } from '@/data/topology'
 import { loadingColor, project, STATE_TOP } from '@/lib/geo'
 import { buildLUT, lutPoint } from '@/lib/vec'
 import { useUI as useUIStore } from '@/store/useUI'
 
-const LINE_Y = STATE_TOP + 0.05
+/** conductor attachment height above ground by voltage (scene units; exaggerated ~40× like all heights on the map) */
+const TOWER_H: Record<number, number> = { 765: 0.12, 400: 0.095, 220: 0.065 }
+const SPAN = 0.24 // scene units between towers (~150 km at map scale; real spans are ~400 m, so this is symbolic)
 
 function endpoints(id: string) {
   const l = LINE_BY_ID[id]
@@ -15,21 +18,75 @@ function endpoints(id: string) {
   const b = BUS_BY_ID[l.to]
   const [ax, az] = project(a.lon, a.lat)
   const [bx, bz] = project(b.lon, b.lat)
-  const ya = a.external ? 0.06 : LINE_Y
-  const yb = b.external ? 0.06 : LINE_Y
-  return [new THREE.Vector3(ax, ya, az), new THREE.Vector3(bx, yb, bz)] as const
+  return [new THREE.Vector3(ax, a.external ? 0 : STATE_TOP, az), new THREE.Vector3(bx, b.external ? 0 : STATE_TOP, bz)] as const
 }
 
-// gentle arc so lines read as overhead conductors
-function arc(a: THREE.Vector3, b: THREE.Vector3, lift: number, n = 16) {
+/**
+ * Overhead route: towers every SPAN along the straight right-of-way, conductors strung between tower tops with a
+ * parabolic sag in each span (a catenary at these sag/span ratios is indistinguishable from a parabola).
+ */
+function route(a: THREE.Vector3, b: THREE.Vector3, h: number) {
+  const len = a.distanceTo(b)
+  const spans = Math.max(1, Math.round(len / SPAN))
+  const towers: THREE.Vector3[] = []
   const pts: THREE.Vector3[] = []
-  for (let i = 0; i <= n; i++) {
-    const t = i / n
-    const p = a.clone().lerp(b, t)
-    p.y += Math.sin(Math.PI * t) * lift
-    pts.push(p)
+  const sag = Math.min(0.018, (len / spans) * 0.06)
+  const per = 6
+  for (let s = 0; s <= spans; s++) {
+    const p = a.clone().lerp(b, s / spans)
+    towers.push(p)
+    if (s === spans) break
+    for (let k = 0; k < per; k++) {
+      const t = k / per
+      const q = a.clone().lerp(b, (s + t) / spans)
+      q.y += h - sag * 4 * t * (1 - t)
+      pts.push(q)
+    }
   }
-  return pts
+  pts.push(b.clone().setY(b.y + h))
+  // the end towers stand inside substations, which draw their own gantries
+  return { pts, towers: towers.slice(1, -1) }
+}
+
+/** One lattice tower, 1 unit tall: tapered four-leg body, two cross-arms and a peak (base at y = 0). */
+function towerGeometry() {
+  const body = new THREE.CylinderGeometry(0.05, 0.26, 1, 4, 1, true)
+  body.translate(0, 0.5, 0)
+  body.rotateY(Math.PI / 4)
+  const arm = new THREE.BoxGeometry(0.95, 0.05, 0.07)
+  arm.translate(0, 0.86, 0)
+  const arm2 = new THREE.BoxGeometry(0.66, 0.045, 0.06)
+  arm2.translate(0, 0.66, 0)
+  const peak = new THREE.ConeGeometry(0.07, 0.18, 4)
+  peak.translate(0, 1.06, 0)
+  const g = mergeGeometries([body.toNonIndexed(), arm.toNonIndexed(), arm2.toNonIndexed(), peak.toNonIndexed()])!
+  g.computeVertexNormals()
+  return g
+}
+
+/** All transmission towers in one instanced draw call, oriented across their line and casting shadows. */
+function Towers({ items }: { items: { p: THREE.Vector3; h: number; yaw: number }[] }) {
+  const ref = useRef<THREE.InstancedMesh>(null)
+  const geometry = useMemo(towerGeometry, [])
+  useLayoutEffect(() => {
+    const m = ref.current
+    if (!m) return
+    const o = new THREE.Object3D()
+    items.forEach((t, i) => {
+      o.position.copy(t.p)
+      o.rotation.set(0, t.yaw, 0)
+      o.scale.set(t.h, t.h, t.h)
+      o.updateMatrix()
+      m.setMatrixAt(i, o.matrix)
+    })
+    m.instanceMatrix.needsUpdate = true
+    m.computeBoundingSphere()
+  }, [items])
+  return (
+    <instancedMesh ref={ref} args={[geometry, undefined, items.length]} castShadow>
+      <meshStandardMaterial color="#8f93a8" metalness={0.55} roughness={0.45} />
+    </instancedMesh>
+  )
 }
 
 export function GridLines({
@@ -54,13 +111,19 @@ export function GridLines({
       LINES.map((l) => {
         const [a, b] = endpoints(l.id)
         const len = a.distanceTo(b)
-        return { line: l, pts: arc(a, b, 0.04 + len * 0.03), a, b, len }
+        const h = TOWER_H[l.kv] ?? 0.06
+        const r = route(a, b, h)
+        // towers stand perpendicular to the line: cross-arms carry the phases side by side
+        const yaw = -Math.atan2(b.z - a.z, b.x - a.x) + Math.PI / 2
+        return { line: l, pts: r.pts, towers: r.towers.map((p) => ({ p, h, yaw })), a, b, len }
       }),
     [],
   )
+  const towers = useMemo(() => geo.flatMap((g) => g.towers), [geo])
 
   return (
     <group>
+      <Towers items={towers} />
       {geo.map(({ line, pts }) => {
         const out = outaged.includes(line.id)
         const v = loading[line.id] ?? 0
@@ -146,7 +209,7 @@ function FlowParticles({
         tmp.scale.setScalar(g.line.kv === 220 ? 0.65 : 1)
         tmp.updateMatrix()
         m.setMatrixAt(idx, tmp.matrix)
-        col.set(g.line.hvdc ? '#5c4c9b' : v >= 1 ? '#982e2d' : v >= 0.9 ? '#a9501f' : '#2a5894')
+        col.set(g.line.hvdc ? '#5c4c9b' : v >= 1 ? '#982e2d' : v >= 0.9 ? '#a9501f' : '#5735cf')
         m.setColorAt(idx, col)
       }
     })
