@@ -61,7 +61,7 @@ Visitors who aren't signed in see a public landing page: what the platform does,
 
 ## Operator experience
 
-Enterprise palette (navy-azure brand, steel neutrals; green, ochre and crimson reserved for status) defined once as design tokens in `web/src/index.css`. Spatial UI: the map is the primary workspace and every page uses glass panels over a soft spatial backdrop (see `.claude/skills/ui-style-selection`). Navigation is a grouped sidebar that follows the SLDC workflow (**Operate**: Overview, DR Events, Grid, Load Rotation, Alarms · **Plan**: Programmes, Forecast, What-if, Grid simulator · **Settle**: Settlement & Audit · **System**: Administration). It shows only the pages the signed-in role may open and collapses to an icon rail; the floating top bar names the page and its group, and flags read-only roles:
+Enterprise palette (navy-azure brand, steel neutrals; green, ochre and crimson reserved for status) defined once as design tokens in `web/src/index.css`. Spatial UI: the map is the primary workspace and every page uses glass panels over a soft spatial backdrop (see `.claude/skills/ui-style-selection`). Navigation lives in the floating top bar and follows the SLDC workflow: the **Operate** pages as tabs (Overview, DR Events, Grid, Load Rotation, Alarms), a **Plan** menu (Programmes, Forecast, What-if, Grid simulator), **Settlement & Audit**, and **Administration** behind the gear. It shows only the pages the signed-in role may open and flags read-only roles. The status cluster stays compact: severity, autonomy level, a data-confidence shield that only shows numbers when something is off, the clock, notifications and the account:
 
 | Module | What the operator gets |
 | --- | --- |

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Toaster } from '@/components/layout/Notifications'
-import { SideNav } from '@/components/layout/SideNav'
 import { canSee } from '@/lib/nav'
+import { cn } from '@/lib/utils'
 import { TopNav } from '@/components/layout/TopNav'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminPage } from '@/pages/AdminPage'
@@ -70,9 +70,7 @@ function Shell() {
   return (
     <div className="spatial-backdrop flex h-full flex-col overflow-hidden">
       <TopNav />
-      <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <SideNav />
-        <main key={page} className="min-h-0 min-w-0 flex-1 overflow-hidden animate-in fade-in duration-200">
+      <main key={page} className={cn('min-h-0 flex-1 overflow-hidden animate-in fade-in duration-200', page === 'command' ? 'pt-2.5' : 'p-3')}>
         {page === 'command' && <CommandCenter />}
         {page === 'operations' && <OperationsPage />}
         {page === 'decisions' && <DecisionsPage />}
@@ -84,8 +82,7 @@ function Shell() {
         {page === 'resources' && <ResourcesPage />}
         {page === 'reports' && <ReportsPage />}
         {page === 'admin' && <AdminPage />}
-        </main>
-      </div>
+      </main>
       <Toaster />
     </div>
   )
