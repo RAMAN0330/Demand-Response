@@ -19,7 +19,7 @@ export const PROGRAMS: { type: string; name: string; desc: string; terms: string
   },
   {
     type: 'industrial',
-    name: 'C&I Curtailment',
+    name: 'C&I Demand Response',
     desc: 'Large commercial & industrial customers reduce load under contract.',
     terms: 'Offers per window · baseline M&V (GridFlex)',
   },
@@ -67,4 +67,17 @@ export function capacity(list: Participant[]): Capacity {
 /** Live participant registry (refreshes every few seconds and on platform events). */
 export function useParticipants(intervalMs = 4000) {
   return useApi<Participant[]>('/resources', { intervalMs })
+}
+
+/** GridFlex event lifecycle (backend DecisionEngine.phase_of), in order, with short labels for steppers. */
+export const PHASES = ['DETECTED', 'ASSESSED', 'PROPOSED', 'APPROVED', 'ACTIVATING', 'VERIFYING', 'RECOVERY', 'SETTLED']
+export const PHASE_SHORT: Record<string, string> = {
+  DETECTED: 'Detect',
+  ASSESSED: 'Assess',
+  PROPOSED: 'Propose',
+  APPROVED: 'Approve',
+  ACTIVATING: 'Activate',
+  VERIFYING: 'Verify',
+  RECOVERY: 'Recover',
+  SETTLED: 'Settle',
 }

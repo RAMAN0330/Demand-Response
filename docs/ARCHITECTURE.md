@@ -8,7 +8,7 @@ ADRMS (Automated Demand Response Management System): an autonomous demand-respon
 | --- | --- | --- |
 | All logic ran in the browser (TypeScript engine) | Nothing runs unless an operator has a tab open. There is no shared state, no continuous loop, and no authority over commands. | All intelligence runs in a **backend service** that is always on. The UI is a client. |
 | Events were opened by a person ("Start decision") | This is not autonomous, and detection depends on attention. | **Continuous detection loop** with alarms, incidents and automatic decision generation. |
-| Scenario injection changed the "live" grid | This mixed simulation with operations. | The **What-if** sandbox has no side effects. Field disturbances exist only in a clearly labelled *simulated data source* (engineering role). |
+| Scenario injection changed the "live" grid | This mixed simulation with operations. | The **What-if** sandbox has no side effects. Field disturbances exist only in a clearly labelled *simulated data source* (Shift In-charge, DR Programme Manager or Administrator). |
 | The optimizer was a greedy heuristic | Not optimal, and its constraint handling was ad hoc. | **Linear program solved by HiGHS** with network (PTDF), energy, ramp, duration and reserve constraints, run as rolling-horizon MPC. |
 | One decision at a time, one-shot dispatch | Did not re-correct when delivery fell short. | **Closed loop.** The plan is re-solved every block, commands follow a lifecycle, and shortfall is corrected automatically. |
 | No data-quality handling | Bad or missing telemetry flowed straight into decisions. | A **quality layer** handles staleness, range checks, spikes and substitution. Low confidence **degrades autonomy automatically**. |
@@ -170,11 +170,15 @@ any non-terminal → ABORTED (operator) · SUPERSEDED (new MPC schedule)
 
   | Role | Key permissions |
   | --- | --- |
-  | `operator` | view, ack alarms, approve, reject |
-  | `shift_in_charge` | + `approve_dual`, autonomy suspend/resume, set autonomy level |
-  | `analyst` | view, what-if, reports |
-  | `engineer` | + config, simulator, resources |
-  | `admin` | everything + users |
+  | `operator` (SLDC Operator) | view, ack alarms, approve, reject, abort, what-if, propose load rotation |
+  | `shift_in_charge` (Shift In-charge) | + `approve_dual`, shelve alarms, approve load rotation, autonomy suspend/resume, resources, simulator, reports |
+  | `dr_manager` (DR Programme Manager) | view, programmes and C&I offers (`resources`), what-if, simulator, reports |
+  | `settlement_officer` (Settlement Officer) | view, reports, resolve M&V disputes (`settle`) |
+  | `auditor` (Auditor) | read-only: view, reports, verify the audit chain (`audit`) |
+  | `admin` (Administrator) | everything + users, config |
+
+  The role picked on the sign-in page must match the account's role; it is checked only after the password. Roles from
+  earlier releases are mapped at start-up (`analyst` → `auditor`, `engineer` → `dr_manager`).
 
 - **Audit:** an append-only SHA-256 hash chain, verifiable through `GET /api/v1/audit/verify`.
 - **Network:** OT/IT segmentation per the CEA Cyber Security Guidelines. Field adapters run in the OT DMZ. Commands use mTLS to the gateways. The API sits behind TLS termination.

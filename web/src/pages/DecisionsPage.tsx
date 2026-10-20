@@ -1,6 +1,6 @@
 // DR Events — every event the platform opened: need, dispatch, delivery vs baseline, value. Approve / reject / abort with full evidence.
 import { useState } from 'react'
-import { Area, Bar as RBar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
+import { Bar as RBar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
 import {
   Activity,
   AlertTriangle,
@@ -337,9 +337,9 @@ function DecisionDetail({ id }: { id: string }) {
       <EventKpis d={d} />
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
-        <div className="grid min-h-0 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
-          <Panel title="Event performance — target vs dispatched vs delivered (MW)" bodyClass="p-2">
-            <PerformanceChart d={d} />
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+          <Panel title="Event performance — target vs dispatched vs delivered" bodyClass="p-2">
+            <PerformanceMetrics d={d} />
           </Panel>
           <Panel title="Why — situation to outcome" bodyClass="overflow-hidden">
             <StoryChain narrative={d.narrative} compact />
@@ -578,7 +578,7 @@ function AltTab({ d }: { d: Full }) {
         const t = tradeoff(c)
         return t
           ? `${c.label} is ${fmtRs(chosen.total_rs - c.total_rs)} cheaper but ${t}`
-          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower, but the dispatch priority is BESS → industrial flexibility → other resources`
+          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower, but the dispatch priority is BESS → C&I demand response → other resources`
       })()
     : 'Lowest total cost'
   const chip = { good: 'bg-emerald-100 text-emerald-700', warn: 'bg-amber-100 text-amber-800', bad: 'bg-rose-100 text-rose-700' }
@@ -977,22 +977,27 @@ function EventKpis({ d }: { d: Full }) {
   )
 }
 
-function PerformanceChart({ d }: { d: Full }) {
-  const rows = (d.timeline ?? []).map((p) => ({ ...p, label: clock(p.t) }))
-  if (rows.length < 2) return <Empty icon={<Loader2 className="size-5 text-slate-300" />}>Performance curve builds up as the event runs.</Empty>
+/** The performance curve as numbers: now, peak and how well delivery tracked the target over the event. */
+function PerformanceMetrics({ d }: { d: Full }) {
+  const tl = d.timeline ?? []
+  if (tl.length < 2) return <Empty icon={<Loader2 className="size-5 text-slate-300" />}>Performance builds up as the event runs.</Empty>
+  const last = tl[tl.length - 1]
+  const peak = (k: 'target' | 'dispatched' | 'delivered') => Math.max(...tl.map((p) => p[k]))
+  const sumT = tl.reduce((a, p) => a + p.target, 0)
+  const tracked = sumT > 0 ? tl.reduce((a, p) => a + Math.min(p.delivered, p.target), 0) / sumT : null
+  const onTarget = tl.filter((p) => p.target > 0.5 && p.delivered >= 0.9 * p.target).length / Math.max(1, tl.filter((p) => p.target > 0.5).length)
+  const sumDisp = tl.reduce((a, p) => a + p.dispatched, 0)
+  const firm = sumDisp > 0 ? tl.reduce((a, p) => a + p.delivered, 0) / sumDisp : null
+  const pct = (x: number | null) => (x == null ? '—' : `${(x * 100).toFixed(0)}%`)
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="#e6eaef" vertical={false} />
-        <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#96a1ae' }} minTickGap={36} />
-        <YAxis tick={{ fontSize: 9, fill: '#96a1ae' }} width={38} />
-        <RTooltip {...chartTooltip} formatter={(v) => `${Number(v).toFixed(0)} MW`} />
-        <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-        <Area dataKey="delivered" name="Delivered" stroke="#2a8761" fill="#abdbc3" fillOpacity={0.6} isAnimationActive={false} />
-        <Line dataKey="dispatched" name="Dispatched" stroke="#6d4fe3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-        <Line dataKey="target" name="Target" stroke="#c07e18" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div className="grid grid-cols-3 gap-2">
+      <Stat label="Target now" value={fmtMW(last.target)} sub={`peak ${fmtMW(peak('target'))}`} />
+      <Stat label="Dispatched now" value={fmtMW(last.dispatched)} sub={`peak ${fmtMW(peak('dispatched'))}`} />
+      <Stat label="Delivered now" value={fmtMW(last.delivered)} sub={`peak ${fmtMW(peak('delivered'))}`} tone="good" />
+      <Stat label="Target covered" value={pct(tracked)} sub="of target, whole event" tone={tracked == null ? undefined : tracked >= 0.85 ? 'good' : 'warn'} />
+      <Stat label="Time on target" value={pct(onTarget)} sub="≥ 90% of target" tone={onTarget >= 0.8 ? 'good' : 'warn'} />
+      <Stat label="Delivery vs dispatch" value={pct(firm)} sub="of dispatched MW" tone={firm == null ? undefined : firm >= 0.85 ? 'good' : 'warn'} />
+    </div>
   )
 }
 

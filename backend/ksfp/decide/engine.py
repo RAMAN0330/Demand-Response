@@ -501,7 +501,7 @@ class DecisionEngine:
                 prediction += f" Predicted constraint: {v[0]['label']} {v[0]['loading'] * 100:.0f}% in {v[0]['lead_min']} min."
         top = sorted(allocs, key=lambda x: -x["mw"])[:3]
         recommendation = (
-            f"Priority mix — BESS → industrial → others (HiGHS LP, {plan.solver['solve_ms']:.0f} ms): {len(allocs)} resources, {plan.peak_mw():.0f} MW — "
+            f"Priority mix — BESS → C&I DR → others (HiGHS LP, {plan.solver['solve_ms']:.0f} ms): {len(allocs)} resources, {plan.peak_mw():.0f} MW — "
             + ", ".join(f"{x['short']} {x['mw']:.0f} MW" for x in top)
             + (f" … Saves {fmt_rs(plan.costs['savings_rs'])} vs doing nothing over the horizon." if plan.costs["savings_rs"] > 0 else " Security-driven (IEGC: keep ACE near zero).")
         )

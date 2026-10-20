@@ -37,7 +37,7 @@ from .ingest.field import SimulatedField
 from .ingest.kptcl import KptclSource
 from .ingest.quality import QualityLayer
 from .obs.metrics import Metrics
-from .security.auth import DEMO_USERS, hash_password
+from .security.auth import DEMO_USERS, LEGACY_ROLES, hash_password
 from .security.service import AuthService
 from .store.db import Store
 
@@ -112,6 +112,9 @@ class Runtime:
             head = await self.store.audit_head()
             if head:
                 self.audit.restore(*head)
+            for u in await self.store.list_users():
+                if u["role"] in LEGACY_ROLES:
+                    await self.store.update_user(u["username"], role=LEGACY_ROLES[u["role"]])
             if self.settings.demo_users:
                 for u, role, display in DEMO_USERS:
                     if not await self.store.get_user(u):

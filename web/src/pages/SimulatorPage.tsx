@@ -1,11 +1,15 @@
 // Grid simulator — operator training drills on the 3D network model.
 // Inject single disturbances or scripted scenarios, watch the system respond (frequency, ACE, drawal, line loading) and
-// check N-1 security live. Drills act on the simulated SCADA/EMS stand-in only; live KPTCL channels are never touched.
+// check N-1 security live, and follow the decision the system takes: the lifecycle, the plan, and each participant
+// (batteries, C&I Demand Response, other flexibility) receiving its command and delivering on the map.
+// Drills act on the simulated SCADA/EMS stand-in only; live KPTCL channels are never touched.
 import { useMemo, useState, type ReactNode } from 'react'
 import { CartesianGrid, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { Activity, BookOpen, Clock3, Gauge, Play, Radio, ShieldAlert, ShieldCheck, Siren, Square, Timer, TrendingUp, Unplug, WifiOff, Zap } from 'lucide-react'
+import { Activity, BookOpen, Gauge, Play, Radio, ShieldAlert, ShieldCheck, Siren, Square, Timer, TrendingUp, Unplug, WifiOff, Zap } from 'lucide-react'
 import { SectionTabs } from '@/components/common'
 import { Empty, Panel, Stat, StatStrip } from '@/components/page'
+import { DecisionTrace } from '@/components/spatial/DecisionTrace'
+import { useEventPlayback } from '@/components/spatial/useEventPlayback'
 import { TerritoryMap, type MapMarker, type MapOverlay } from '@/components/three/TerritoryMap'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,7 +21,7 @@ import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
 import { fmtMW } from '@/lib/geo'
 import type { Sel } from '@/lib/spatial'
-import { blockLabel, fmtHz, IEGC } from '@/lib/standards'
+import { fmtHz, IEGC } from '@/lib/standards'
 import { chartTooltip, signed } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
@@ -180,6 +184,9 @@ export function SimulatorPage() {
   const { data: n1 } = useApi<ContingencyT>('/network/contingency', { intervalMs: 5000 })
   const { data: clk, reload: reloadClock } = useApi<ClockT>('/admin/simulator/clock', { live: false })
   const [mode, setMode] = useState<'live' | 'n1'>('live')
+  const [tab, setTab] = useState('decisions')
+  // the live DR event: its commands drive the dispatch wave and participant states on the map
+  const pb = useEventPlayback(frame?.active_decision?.id ?? null, null)
   const [pick, setPick] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
 
@@ -216,8 +223,11 @@ export function SimulatorPage() {
           : 'N-1 view: each line coloured by its worst post-contingency loading',
       }
     }
-    return { markers }
-  }, [live, mode, n1, picked])
+    const ad = frame?.active_decision
+    return ad && !ad.closed_at
+      ? { ...pb.overlay, markers, caption: `${ad.id}: ${ad.direction === 'UP' ? 'reducing' : 'adding'} ${fmtMW(ad.requirement_mw)} · ${ad.phase?.toLowerCase() ?? ad.state.toLowerCase()}` }
+      : { markers }
+  }, [live, mode, n1, picked, pb.overlay, frame?.active_decision])
 
   const cardActions = (sel: Sel) => {
     if (!allowed) return null
@@ -301,7 +311,10 @@ export function SimulatorPage() {
           tone={!n1 ? undefined : n1.secure ? 'good' : 'bad'}
           meter={contCount ? secureCount / contCount : undefined}
           sub={n1 ? `DC LODF screen · ${n1.solve_ms.toFixed(1)} ms` : 'screening…'}
-          onClick={() => setMode('n1')}
+          onClick={() => {
+            setMode('n1')
+            setTab('n1')
+          }}
         />
         <Stat
           label="Drills in progress"
@@ -310,10 +323,9 @@ export function SimulatorPage() {
           tone={live.some((d) => d.active) ? 'warn' : undefined}
           sub={`${live.filter((d) => d.pending).length} scheduled · ${frame.outaged.length} element(s) out`}
         />
-        <Stat label="Grid clock" icon={<Clock3 />} value={frame.clock} sub={`${blockLabel(frame.block)} · ${frame.time_scale}× speed`} />
       </StatStrip>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_340px] gap-3">
+      <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)_340px] gap-3">
         {/* left: drill console + drills in progress */}
         <div className="grid min-h-0 grid-rows-[minmax(0,1.7fr)_minmax(0,1fr)] gap-3">
           <Panel title="Drill console" icon={<Play />} bodyClass="flex flex-col">
@@ -420,65 +432,71 @@ export function SimulatorPage() {
           <TerritoryMap overlay={overlay} chrome={{ bare: true, cardActions, cardRows }} />
         </Panel>
 
-        {/* right: system response + contingency ranking */}
-        <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.15fr)] gap-3">
-          <Panel title="System response" icon={<Activity />} aside={<span className="text-[10px] text-slate-400">{trend.length} samples</span>} bodyClass="p-2">
-            <ResponseChart />
-          </Panel>
-          <Panel
-            title="N-1 contingency ranking"
-            icon={<ShieldAlert />}
-            aside={n1 && <Badge variant={n1.secure ? 'success' : 'destructive'}>{n1.secure ? 'secure' : `${n1.insecure} insecure`}</Badge>}
-            bodyClass="overflow-y-auto p-2"
-          >
-            {!n1 ? (
-              <Empty>Screening single-line outages…</Empty>
-            ) : (
-              <ul className="space-y-1">
-                {ranked.map((c) => {
-                  const on = pick === c.line
-                  const bad = c.islanding && !c.tie_only ? true : c.worst_loading > 1
-                  const warn = !bad && c.worst_loading > 0.9
-                  return (
-                    <li key={c.line}>
-                      <button
-                        onClick={() => {
-                          setMode('n1')
-                          setPick(on ? null : c.line)
-                          if (!on) select({ kind: 'line', id: c.line })
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-900/[0.04]',
-                          on && 'bg-sky-50 ring-1 ring-sky-200',
-                          c.tie_only && 'opacity-60',
-                        )}
-                      >
-                        <span className={cn('size-2 shrink-0 rounded-full', bad ? 'bg-rose-500' : warn ? 'bg-amber-500' : 'bg-emerald-500')} />
-                        <div className="min-w-0 flex-1 leading-tight">
-                          <div className="truncate text-xs font-medium text-slate-700">{c.label}</div>
-                          <div className="truncate text-[10px] text-slate-500">
-                            {c.tie_only
-                              ? 'Radial tie: only the external node separates'
-                              : c.islanding
-                                ? `Islands ${c.islanded.map((b) => BUS_BY_ID[b]?.name.split(' ')[0] ?? b).join(', ')}`
-                                : c.worst_label
-                                  ? `→ ${c.worst_label}${c.overloads > 1 ? ` · ${c.overloads} overloads` : ''}`
-                                  : 'No other line affected'}
-                          </div>
-                        </div>
-                        {!c.tie_only && !c.islanding && (
-                          <span className={cn('num shrink-0 text-xs font-semibold', bad ? 'text-rose-600' : warn ? 'text-amber-700' : 'text-slate-600')}>
-                            {(c.worst_loading * 100).toFixed(0)}%
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </Panel>
-        </div>
+        {/* right: what the system decided, how the grid responds, and N-1 security */}
+        <Panel bodyClass="flex flex-col p-2.5">
+          <SectionTabs
+            value={tab}
+            onValueChange={setTab}
+            sections={[
+              { id: 'decisions', label: 'Decisions', content: <DecisionTrace pb={pb} /> },
+              { id: 'response', label: 'Response', content: <ResponseChart /> },
+              {
+                id: 'n1',
+                label: n1 && !n1.secure ? `N-1 · ${n1.insecure}` : 'N-1',
+                content: (
+                  <div className="h-full overflow-y-auto">
+                  {!n1 ? (
+                    <Empty>Screening single-line outages…</Empty>
+                  ) : (
+                    <ul className="space-y-1">
+                      {ranked.map((c) => {
+                        const on = pick === c.line
+                        const bad = c.islanding && !c.tie_only ? true : c.worst_loading > 1
+                        const warn = !bad && c.worst_loading > 0.9
+                        return (
+                          <li key={c.line}>
+                            <button
+                              onClick={() => {
+                                setMode('n1')
+                                setPick(on ? null : c.line)
+                                if (!on) select({ kind: 'line', id: c.line })
+                              }}
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-900/[0.04]',
+                                on && 'bg-sky-50 ring-1 ring-sky-200',
+                                c.tie_only && 'opacity-60',
+                              )}
+                            >
+                              <span className={cn('size-2 shrink-0 rounded-full', bad ? 'bg-rose-500' : warn ? 'bg-amber-500' : 'bg-emerald-500')} />
+                              <div className="min-w-0 flex-1 leading-tight">
+                                <div className="truncate text-xs font-medium text-slate-700">{c.label}</div>
+                                <div className="truncate text-[10px] text-slate-500">
+                                  {c.tie_only
+                                    ? 'Radial tie: only the external node separates'
+                                    : c.islanding
+                                      ? `Islands ${c.islanded.map((b) => BUS_BY_ID[b]?.name.split(' ')[0] ?? b).join(', ')}`
+                                      : c.worst_label
+                                        ? `→ ${c.worst_label}${c.overloads > 1 ? ` · ${c.overloads} overloads` : ''}`
+                                        : 'No other line affected'}
+                                </div>
+                              </div>
+                              {!c.tie_only && !c.islanding && (
+                                <span className={cn('num shrink-0 text-xs font-semibold', bad ? 'text-rose-600' : warn ? 'text-amber-700' : 'text-slate-600')}>
+                                  {(c.worst_loading * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </Panel>
       </div>
     </div>
   )
@@ -720,7 +738,7 @@ function InjectForm({ allowed, selection, onRun }: { allowed: boolean; selection
       <Button size="sm" className="w-full shrink-0" disabled={!allowed} onClick={() => onRun(inject(kind, params(), dur), `${KIND_BY_ID[kind].label} injected`)}>
         <Zap className="size-4" /> Inject disturbance
       </Button>
-      {!allowed && <div className="text-[11px] text-slate-500">Injecting drills needs the engineer or administrator role.</div>}
+      {!allowed && <div className="text-[11px] text-slate-500">Injecting drills needs the Shift In-charge, DR Programme Manager or Administrator role.</div>}
     </div>
   )
 }

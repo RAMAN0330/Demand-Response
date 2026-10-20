@@ -74,18 +74,18 @@ def test_public_config_and_demo_login(client):
 
 def test_uniform_errors_and_lockout(client):
     # unknown and known accounts answer identically, and both lock
-    for u in ("ghost-user", "analyst"):
+    for u in ("ghost-user", "auditor"):
         for _ in range(2):
             r = login(client, u, "wrong-password")
             assert r.status_code == 401 and r.json()["detail"] == "Invalid username or password."
         r = login(client, u, "wrong-password")
         assert r.status_code == 423 and "locked" in r.json()["detail"]["message"]
-    assert login(client, "analyst").status_code == 423  # even the right password while locked
+    assert login(client, "auditor").status_code == 423  # even the right password while locked
     users = client.get("/api/v1/admin/users", headers=admin(client)).json()
-    row = next(x for x in users if x["username"] == "analyst")
+    row = next(x for x in users if x["username"] == "auditor")
     assert row["locked"] and "password_hash" not in row and "mfa_secret" not in row
-    assert client.post("/api/v1/admin/users/analyst/unlock", headers=admin(client)).status_code == 200
-    assert login(client, "analyst").json()["status"] == "ok"
+    assert client.post("/api/v1/admin/users/auditor/unlock", headers=admin(client)).status_code == 200
+    assert login(client, "auditor").json()["status"] == "ok"
 
 
 def test_ip_throttle(client):
@@ -101,7 +101,7 @@ def test_ip_throttle(client):
 
 
 def test_refresh_rotation_reuse_and_logout(client):
-    r = login(client, "engineer").json()
+    r = login(client, "manager").json()
     r2 = client.post(A + "/refresh", json={"refresh_token": r["refresh_token"]}).json()
     assert r2["status"] == "ok" and r2["refresh_token"] != r["refresh_token"]
     assert client.get(A + "/me", headers=bearer(r2["token"])).status_code == 200
@@ -110,7 +110,7 @@ def test_refresh_rotation_reuse_and_logout(client):
     assert client.get(A + "/me", headers=bearer(r2["token"])).status_code == 401
     assert client.post(A + "/refresh", json={"refresh_token": r2["refresh_token"]}).status_code == 401
     # logout ends the session for its access token too
-    r3 = login(client, "engineer").json()
+    r3 = login(client, "manager").json()
     assert client.post(A + "/logout", headers=bearer(r3["token"])).status_code == 200
     assert client.get("/api/v1/state", headers=bearer(r3["token"])).status_code == 401
 
@@ -176,10 +176,10 @@ def test_admin_user_management_and_guards(client):
     assert client.get("/api/v1/admin/users", headers=op).status_code == 403
 
     # role change ends the user's sessions so the new permissions apply at once
-    assert client.patch("/api/v1/admin/users/new.op", headers=ad, json={"role": "analyst", "email": "op@example.org"}).status_code == 200
+    assert client.patch("/api/v1/admin/users/new.op", headers=ad, json={"role": "auditor", "email": "op@example.org"}).status_code == 200
     assert client.get(A + "/me", headers=h).status_code == 401
     me = client.get(A + "/me", headers=bearer(login(client, "new.op", STRONG).json()["token"])).json()
-    assert me["role"] == "analyst" and me["email"] == "op@example.org"
+    assert me["role"] == "auditor" and me["email"] == "op@example.org"
 
     # disabled accounts cannot sign in
     assert client.patch("/api/v1/admin/users/new.op", headers=ad, json={"active": False}).status_code == 200
@@ -190,9 +190,18 @@ def test_admin_user_management_and_guards(client):
     assert client.patch("/api/v1/admin/users/admin", headers=ad, json={"active": False}).status_code == 409
     assert client.patch("/api/v1/admin/users/admin", headers=ad, json={"role": "operator"}).status_code == 409
     h2, _ = new_user(client, "second.admin", role="admin")
-    assert client.patch("/api/v1/admin/users/admin", headers=h2, json={"role": "engineer"}).status_code == 200
+    assert client.patch("/api/v1/admin/users/admin", headers=h2, json={"role": "dr_manager"}).status_code == 200
     assert client.patch("/api/v1/admin/users/admin", headers=h2, json={"role": "admin"}).status_code == 200
 
     audit = client.get("/api/v1/audit", headers=admin(client), params={"kind": "SECURITY", "limit": 200}).json()
     text = " ".join(e["message"] for e in (audit["items"] if isinstance(audit, dict) else audit))
     assert "User new.op created" in text and "Account locked" in text and "refresh token reused" in text
+
+
+def test_picked_role_must_match_the_account(client):
+    r = client.post(A + "/login", json={"username": "settlement", "password": "settlement123", "role": "admin"})
+    assert r.status_code == 403 and "not registered as Administrator" in r.json()["detail"]
+    ok = client.post(A + "/login", json={"username": "settlement", "password": "settlement123", "role": "settlement_officer"}).json()
+    assert ok["status"] == "ok" and ok["user"]["role_label"] == "Settlement Officer"
+    # a wrong password still says nothing about the role
+    assert client.post(A + "/login", json={"username": "settlement", "password": "nope", "role": "admin"}).status_code == 401

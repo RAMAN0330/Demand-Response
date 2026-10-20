@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ROLE_INFO } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { AuthFailure, useAuth, type LoginStep } from '@/store/useAuth'
 
@@ -18,6 +19,8 @@ interface AuthConfig {
   session_hours: number
   remember_days: number
 }
+
+const ROLE_KEY = 'adrms-login-role'
 
 type Step = { kind: 'credentials' } | { kind: 'mfa'; challenge: string; who: string } | { kind: 'password'; challenge: string; who: string; username: string }
 
@@ -38,7 +41,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid h-full overflow-hidden bg-slate-100 lg:grid-cols-[minmax(0,1.05fr)_minmax(460px,1fr)]">
+    <div className="spatial-backdrop grid h-full gap-3 overflow-hidden p-3 lg:grid-cols-[minmax(0,1fr)_minmax(520px,1fr)]">
       <BrandPanel />
       <div className="relative flex min-h-0 flex-col overflow-y-auto">
         <div className="flex items-center justify-between px-8 pt-6">
@@ -50,8 +53,8 @@ export function LoginPage() {
             <ArrowLeft className="size-3.5" /> Product overview
           </a>
         </div>
-        <div className="grid flex-1 place-items-center px-6 py-8">
-          <div className="w-full max-w-[400px]">
+        <div className="grid flex-1 place-items-center px-4 py-6">
+          <div className="surface-panel w-full max-w-[480px] p-7">
             <div key={step.kind} className="animate-in fade-in slide-in-from-right-3 duration-300">
               {step.kind === 'credentials' && <Credentials cfg={cfg} username={username} setUsername={setUsername} onNext={(s) => next(s, username)} />}
               {step.kind === 'mfa' && <MfaStep challenge={step.challenge} who={step.who} onBack={() => setStep({ kind: 'credentials' })} />}
@@ -79,11 +82,11 @@ export function LoginPage() {
 function BrandPanel() {
   const ladder: [LucideIcon, string, string][] = [
     [BatteryCharging, 'Batteries', 'first: fastest, cheapest to call'],
-    [Factory, 'Industrial flexibility', 'next: offers, verified against a baseline'],
+    [Factory, 'C&I Demand Response', 'next: offers, verified against a baseline'],
     [RefreshCcw, 'Load rotation', 'last: fair, limited, always approved'],
   ]
   return (
-    <div className="relative hidden overflow-hidden bg-gradient-to-br from-[#1b1060] via-[#2a1a9e] to-[#5735cf] text-white lg:flex lg:flex-col">
+    <div className="relative hidden overflow-hidden rounded-2xl bg-gradient-to-br from-[#1b1060] via-[#2a1a9e] to-[#5735cf] text-white shadow-[var(--shadow-float)] lg:flex lg:flex-col">
       <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07]" aria-hidden>
         <defs>
           <pattern id="login-grid" width="36" height="36" patternUnits="userSpaceOnUse">
@@ -226,6 +229,38 @@ function Credentials({ cfg, username, setUsername, onNext }: { cfg: AuthConfig |
   const [err, setErr] = useState<string | null>(null)
   const [lockedUntil, setLockedUntil] = useState<number | null>(null)
   const [forgot, setForgot] = useState(false)
+  const [role, setRole] = useState(() => {
+    try {
+      return localStorage.getItem(ROLE_KEY) ?? 'operator'
+    } catch {
+      return 'operator'
+    }
+  })
+  const demo = cfg?.demo ? cfg.demo_users.find((d) => d.role === role) : undefined
+  // demonstration mode opens with the remembered role's demo account filled in
+  useEffect(() => {
+    if (demo && !username) {
+      setUsername(demo.username)
+      setPassword(`${demo.username}123`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo])
+
+  function pick(r: string) {
+    setRole(r)
+    setErr(null)
+    try {
+      localStorage.setItem(ROLE_KEY, r)
+    } catch {
+      /* remembered role is a convenience only */
+    }
+    // demonstration mode: the role's demo account fills in, ready to sign in
+    const d = cfg?.demo ? cfg.demo_users.find((x) => x.role === r) : undefined
+    if (d) {
+      setUsername(d.username)
+      setPassword(`${d.username}123`)
+    }
+  }
   const pwRef = useRef<HTMLInputElement>(null)
   const left = useCountdown(lockedUntil)
 
@@ -238,7 +273,7 @@ function Credentials({ cfg, username, setUsername, onNext }: { cfg: AuthConfig |
     setBusy(true)
     setErr(null)
     try {
-      const s = await login(u, p, remember)
+      const s = await login(u, p, remember, role)
       if (s.status !== 'ok') onNext(s)
     } catch (x) {
       const f = x as AuthFailure
@@ -253,8 +288,35 @@ function Credentials({ cfg, username, setUsername, onNext }: { cfg: AuthConfig |
 
   return (
     <form onSubmit={submit} noValidate>
-      <Heading icon={LogIn} title="Sign in" sub="Use the account your administrator issued you." />
+      <Heading icon={LogIn} title="Sign in" sub="Pick the role you are on duty as, then use the account your administrator issued you." />
       <div className="space-y-4">
+        <fieldset>
+          <legend className="mb-1.5 text-sm font-medium">Role</legend>
+          <div role="radiogroup" className="grid grid-cols-3 gap-1.5">
+            {ROLE_INFO.map((r) => {
+              const on = role === r.role
+              return (
+                <button
+                  key={r.role}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  title={r.desc}
+                  disabled={busy}
+                  onClick={() => pick(r.role)}
+                  className={cn(
+                    'flex h-[68px] flex-col items-center justify-center gap-1 rounded-xl border px-1.5 text-center text-[11.5px] leading-tight font-medium transition',
+                    on ? 'border-sky-600 bg-sky-50 text-sky-900 ring-2 ring-sky-500/20' : 'border-slate-200 bg-white/80 text-slate-600 hover:border-sky-300 hover:bg-sky-50/60',
+                  )}
+                >
+                  <r.icon className={cn('size-4.5', on ? 'text-sky-700' : 'text-slate-400')} />
+                  {r.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1.5 min-h-8 text-[11.5px] leading-snug text-slate-500">{ROLE_INFO.find((r) => r.role === role)?.desc}</p>
+        </fieldset>
         {notice && <ErrorNote tone="warn">{notice}</ErrorNote>}
         {err && (
           <ErrorNote>
@@ -309,30 +371,9 @@ function Credentials({ cfg, username, setUsername, onNext }: { cfg: AuthConfig |
         </Button>
       </div>
 
-      {cfg?.demo && cfg.demo_users.length > 0 && (
-        <div className="mt-7">
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-            <span className="h-px flex-1 bg-slate-200" /> Demo accounts <span className="h-px flex-1 bg-slate-200" />
-          </div>
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {cfg.demo_users.map((d) => (
-              <button
-                key={d.username}
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setUsername(d.username)
-                  setPassword(`${d.username}123`)
-                  void submit(undefined, d.username, `${d.username}123`)
-                }}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 shadow-xs transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
-                title={`Sign in as ${d.username} (password ${d.username}123)`}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-          <div className="mt-1.5 text-center text-[11px] text-slate-400">Demonstration mode: password is the username followed by 123.</div>
+      {cfg?.demo && (
+        <div className="mt-4 text-center text-[11px] text-slate-400">
+          Demonstration mode{demo ? `: picking a role fills in its demo account (${demo.username} / ${demo.username}123).` : '.'}
         </div>
       )}
     </form>

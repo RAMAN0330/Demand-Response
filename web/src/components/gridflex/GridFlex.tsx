@@ -1,4 +1,4 @@
-// GridFlex — coordinated industrial flexibility and load rotation inside ADRMS. These views live on existing pages:
+// GridFlex — coordinated C&I demand response and load rotation inside ADRMS. These views live on existing pages:
 // the coordination ledger on DR Events, the industrial programme on Programs, and the shortage scenario on What-if.
 import { useState } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
+import { PHASES, PHASE_SHORT } from '@/lib/dr'
 import { fmtMW, fmtRs } from '@/lib/geo'
 import { chartTooltip } from '@/lib/ui'
 import { cn } from '@/lib/utils'
@@ -112,17 +113,6 @@ interface Industrial {
   offered_mw: number
 }
 
-const PHASES = ['DETECTED', 'ASSESSED', 'PROPOSED', 'APPROVED', 'ACTIVATING', 'VERIFYING', 'RECOVERY', 'SETTLED']
-const SHORT: Record<string, string> = {
-  DETECTED: 'Detect',
-  ASSESSED: 'Assess',
-  PROPOSED: 'Propose',
-  APPROVED: 'Approve',
-  ACTIVATING: 'Activate',
-  VERIFYING: 'Verify',
-  RECOVERY: 'Recover',
-  SETTLED: 'Settle',
-}
 const EXC: Record<string, string> = {
   REJECTED: 'bg-slate-200 text-slate-700',
   CANCELLED: 'bg-slate-200 text-slate-700',
@@ -140,7 +130,7 @@ export function CoordinationView({ L }: { L: GfLedger }) {
     { label: 'Shortage', planned: L.shortage_mw, measured: L.shortage_mw, cls: 'bg-amber-500', sign: '' },
     { label: '1 · BESS', planned: L.bess.commanded_mw, measured: L.bess.metered_mw, cls: 'bg-violet-500', sign: '−', note: 'metered' },
     {
-      label: '2 · Industrial flexibility',
+      label: '2 · C&I Demand Response',
       planned: L.industrial.activated_mw,
       measured: L.industrial.verified_mw,
       cls: 'bg-emerald-500',
@@ -169,7 +159,7 @@ export function CoordinationView({ L }: { L: GfLedger }) {
               <div key={p} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                 <div className={cn('h-1.5 w-full rounded-full', exc ? 'bg-slate-200' : i < idx ? 'bg-sky-500' : i === idx ? 'animate-pulse bg-sky-600' : 'bg-slate-200')} />
                 <span title={p} className={cn('truncate text-[9.5px] font-semibold', i === idx && !exc ? 'text-sky-700' : 'text-slate-400')}>
-                  {SHORT[p]}
+                  {PHASE_SHORT[p]}
                 </span>
               </div>
             ))}
@@ -230,7 +220,7 @@ export function CoordinationView({ L }: { L: GfLedger }) {
               <b>BESS</b> — first, up to power, state of charge and network limits
             </li>
             <li>
-              <b>Industrial flexibility</b> — inside accepted offers, on their terms
+              <b>C&I Demand Response</b> — inside accepted offers, on their terms
             </li>
             <li>Other paid flexibility — generation re-dispatch, interruptible, shiftable, DER, then RTM</li>
             <li>
@@ -550,7 +540,7 @@ export function ShortageScenario() {
           <Input type="number" min={1} max={8} value={blocks} onChange={(e) => setBlocks(Number(e.target.value))} className="h-7 w-20 text-xs" />
         </label>
         <div className="flex flex-col gap-1">
-          Industrial participation
+          C&I participation
           <div className="flex gap-1">
             {[50, 70, 90].map((v) => (
               <Button key={v} size="sm" variant={part === v ? 'default' : 'outline'} className="h-7 px-2.5 text-[11px]" onClick={() => setPart(v)}>

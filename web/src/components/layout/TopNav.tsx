@@ -1,28 +1,21 @@
-// Primary navigation (operator destinations), live event chip, and the system-status cluster.
+// Top bar: brand, page tabs grouped by workflow (Operate · Plan · Settlement; Administration behind the gear),
+// and a compact status cluster that only spells out numbers when something needs attention.
 import { useState } from 'react'
 import {
   Activity,
-  Bell,
   Bot,
   ChevronDown,
-  FlaskConical,
-  LayoutDashboard,
-  LineChart,
+  Eye,
   LogOut,
-  Network,
   PauseCircle,
   PlayCircle,
-  Power,
-  Receipt,
   Settings2,
-  Siren,
   ShieldAlert,
   ShieldCheck,
   UserCog,
   Wifi,
   WifiOff,
   Users,
-  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -33,32 +26,27 @@ import { api } from '@/lib/api'
 import { NotificationBell } from './Notifications'
 import { AdrmsBrand } from '@/components/brand/AdrmsMark'
 import { AccountDialog } from '@/components/auth/AccountDialog'
-import { fmtMW } from '@/lib/geo'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
 import { useLive } from '@/store/useLive'
 import { useUI, type Page } from '@/store/useUI'
+import { canSee, NAV, readOnly } from '@/lib/nav'
 
 const LEVELS = ['Monitor', 'Advisory', 'Supervised', 'Autonomous']
 const fmtAge = (s: number | null | undefined) => (s == null ? 'never' : s < 60 ? `${s.toFixed(0)} s` : s < 3600 ? `${(s / 60).toFixed(0)} min` : `${(s / 3600).toFixed(1)} h`)
 
-// DR operator workflow: overview → events (act) → programs (capacity) → grid & forecast (context) → alarms
-const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: 'command', label: 'Overview', icon: LayoutDashboard },
-  { id: 'decisions', label: 'DR Events', icon: Zap },
-  { id: 'resources', label: 'Programmes', icon: Users },
-  { id: 'operations', label: 'Grid', icon: Network },
-  { id: 'shedding', label: 'Load Rotation', icon: Power },
-  { id: 'analysis', label: 'Forecast', icon: LineChart },
-  { id: 'alarms', label: 'Alarms', icon: Bell },
-]
+type Count = { n: number; tone: string } | null
+const TAB = 'relative flex h-full items-center gap-1.5 px-3 text-[13px] font-medium whitespace-nowrap text-slate-500 transition hover:text-slate-900'
+const TAB_ON = 'text-sky-800 after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:rounded-t-full after:bg-sky-600'
 
-const MORE: { id: Page; label: string; hint: string; icon: typeof LayoutDashboard; perm?: string }[] = [
-  { id: 'whatif', label: 'What-if sandbox', hint: 'Test a DR event before it happens — no dispatch', icon: FlaskConical, perm: 'whatif' },
-  { id: 'simulator', label: 'Grid simulator', hint: 'Training drills, N-1 security and system response on the 3D network', icon: Siren },
-  { id: 'reports', label: 'Settlement & Audit', hint: 'Baseline, delivery, payments, audit trail', icon: Receipt },
-  { id: 'admin', label: 'Administration', hint: 'Autonomy policy, data sources, simulator, users', icon: Settings2 },
-]
+function Tab({ id, label, on, count, onClick }: { id: Page; label: string; on: boolean; count?: Count; onClick: () => void }) {
+  return (
+    <button key={id} onClick={onClick} aria-current={on ? 'page' : undefined} className={cn(TAB, on && TAB_ON)}>
+      {label}
+      {count && <span className={cn('rounded-full px-1.5 text-[10px] font-bold tabular-nums', count.tone)}>{count.n}</span>}
+    </button>
+  )
+}
 
 export function TopNav() {
   const page = useUI((s) => s.page)
@@ -73,7 +61,7 @@ export function TopNav() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const counts: Partial<Record<Page, { n: number; tone: string } | null>> = {
+  const counts: Partial<Record<Page, Count>> = {
     decisions: f?.counts.awaiting
       ? { n: f.counts.awaiting, tone: 'bg-amber-500 text-white' }
       : f?.counts.decisions_open
@@ -98,16 +86,12 @@ export function TopNav() {
     }
   }
 
-  const ev = f?.active_decision && !f.active_decision.closed_at ? f.active_decision : null
   const age = f?.data_age
   const vetoes = f?.autonomy.vetoes ?? []
   // worst age among the inputs that gate control (a green pill must never imply fresh data)
   const oldest = age ? Math.max(...[age.frequency, age.schedule, age.breakers, age.sldc].filter((x): x is number => x != null), 0) : null
   const stale = oldest != null && oldest > 10
   const sevDot = { NORMAL: 'bg-emerald-500', ALERT: 'bg-amber-500', EMERGENCY: 'animate-pulse bg-rose-500' } as const
-  const tab = 'relative flex h-full items-center gap-1.5 px-2 text-[13px] 2xl:px-2.5 font-medium whitespace-nowrap text-slate-500 transition hover:text-slate-900'
-  const on = 'text-sky-700 after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-t-full after:bg-sky-600'
-
   return (
     <header className="surface-panel relative z-30 mx-3 mt-2.5 flex h-13 shrink-0 items-stretch gap-3 px-3 text-slate-800">
       {/* hairline highlight along the bottom edge */}
@@ -117,53 +101,36 @@ export function TopNav() {
       </button>
       <div className="my-3 w-px bg-slate-200" />
 
-      <nav className="flex min-w-0 items-stretch">
-        {PRIMARY.map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => go(id)} className={cn(tab, page === id && on)}>
-            <Icon className="size-4 max-[1799px]:hidden" />
-            {label}
-            {counts[id] && <span className={cn('ml-0.5 rounded-full px-1.5 text-[10px] font-bold tabular-nums', counts[id]!.tone)}>{counts[id]!.n}</span>}
-          </button>
-        ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={cn(tab, 'gap-1', MORE.some((m) => m.id === page) && on)}>
-              <span className="max-w-40 truncate">{MORE.find((m) => m.id === page)?.label ?? 'More'}</span> <ChevronDown className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            {MORE.filter((m) => !m.perm || can(m.perm)).map(({ id, label, hint, icon: Icon }) => (
-              <DropdownMenuItem key={id} onClick={() => go(id)} className="items-start">
-                <Icon className="mt-0.5" />
-                <span>
-                  <span className="block font-medium">{label}</span>
-                  <span className="block text-[11px] text-muted-foreground">{hint}</span>
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {/* pages grouped by workflow: Operate as tabs, Plan in one menu, Settlement as a tab; Administration is the gear on the right */}
+      <nav className="flex min-w-0 items-stretch" aria-label="Main navigation">
+        {NAV.filter((g) => g.group !== 'System').map(({ group, items }) => {
+          const shown = items.filter((i) => canSee(i.id, can))
+          if (!shown.length) return null
+          if (group !== 'Plan') return shown.map((i) => <Tab key={i.id} id={i.id} label={i.label} on={page === i.id} count={counts[i.id]} onClick={() => go(i.id)} />)
+          const cur = shown.find((i) => i.id === page)
+          return (
+            <DropdownMenu key={group}>
+              <DropdownMenuTrigger asChild>
+                <button className={cn(TAB, 'gap-1', cur && TAB_ON)}>
+                  {cur?.label ?? group} <ChevronDown className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                {shown.map(({ id, label, icon: Icon }) => (
+                  <DropdownMenuItem key={id} onClick={() => go(id)}>
+                    <Icon /> {label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        })}
       </nav>
 
       {/* live event + system status — qualifies everything on screen */}
       <div className="ml-auto flex items-center gap-2">
         {f && (
           <>
-            {ev && (
-              <button
-                onClick={() => go('decisions')}
-                className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap text-amber-800 ring-1 ring-amber-300 transition hover:bg-amber-100"
-              >
-                <span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-70" />
-                  <span className="relative inline-flex size-2 rounded-full bg-amber-500" />
-                </span>
-                <span className="hidden min-[2100px]:inline">{ev.id} · </span>
-                {ev.direction === 'UP' ? '↓' : '↑'}
-                <span className="hidden min-[1760px]:inline">load</span> {fmtMW(ev.requirement_mw)}
-                {ev.awaiting_mw > 0 && <span className="rounded bg-amber-500 px-1 text-[9px] text-white">APPROVE</span>}
-              </button>
-            )}
 
             <div className="flex items-center rounded-full bg-slate-50 p-0.5 ring-1 ring-slate-200">
               <Tooltip>
@@ -195,7 +162,6 @@ export function TopNav() {
                     ) : (
                       <>
                         L{eff}
-                        <span className="hidden min-[1680px]:inline">{LEVELS[eff]}</span>
                       </>
                     )}
                     {degraded && !f.autonomy.suspended && <span className="text-[9px] font-bold opacity-80">↓ from L{f.autonomy.level}</span>}
@@ -223,7 +189,7 @@ export function TopNav() {
                       </DropdownMenuItem>
                     )
                   ) : (
-                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Suspend/resume requires Shift-in-Charge.</div>
+                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Suspend/resume requires the Shift In-charge.</div>
                   )}
                   <DropdownMenuItem onClick={() => go('admin')}>
                     <Settings2 /> Autonomy policy…
@@ -238,8 +204,10 @@ export function TopNav() {
                       vetoes.length || f.confidence < 0.85 ? 'text-rose-600' : f.confidence < 0.97 || stale ? 'text-amber-700' : 'text-emerald-700',
                     )}
                   >
-                    <ShieldAlert className="size-3" /> {(f.confidence * 100).toFixed(0)}%
-                    {oldest != null && oldest > 10 && <span className="font-mono text-[10px] opacity-80">· {fmtAge(oldest)}</span>}
+                    <ShieldAlert className="size-3" />
+                    {/* healthy data is just the green shield; numbers appear only when something is off */}
+                    {(vetoes.length > 0 || f.confidence < 0.97 || stale) && <>{(f.confidence * 100).toFixed(0)}%</>}
+                    {stale && <span className="font-mono text-[10px] opacity-80">· {fmtAge(oldest)}</span>}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-sm">
@@ -270,17 +238,7 @@ export function TopNav() {
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="w-[78px] leading-tight whitespace-nowrap">
-                  <div>
-                    <span className="font-mono text-[13px] font-semibold tabular-nums">{f.clock}</span>
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
-                      <div className="h-full rounded-full bg-sky-500" style={{ width: `${(f.block / 96) * 100}%` }} />
-                    </div>
-                    <span className="font-mono text-[9px] text-slate-400 tabular-nums">B{f.block}</span>
-                  </div>
-                </div>
+                <span className="font-mono text-[13px] font-semibold whitespace-nowrap tabular-nums">{f.clock}</span>
               </TooltipTrigger>
               <TooltipContent>
                 Time block {f.block} of 96 (15-min DSM blocks){f.time_scale !== 1 && ` · simulated clock ×${f.time_scale}`}
@@ -302,19 +260,34 @@ export function TopNav() {
           </TooltipTrigger>
           <TooltipContent>Real-time stream: {conn}</TooltipContent>
         </Tooltip>
+        {readOnly(user?.permissions) && (
+          <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+            <Eye className="size-3" /> Read-only
+          </span>
+        )}
+        {canSee('admin', can) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => go('admin')}
+                aria-label="Administration"
+                className={cn('grid size-8 place-items-center rounded-full text-slate-500 transition hover:bg-sky-50 hover:text-sky-800', page === 'admin' && 'bg-sky-100 text-sky-800')}
+              >
+                <Settings2 className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Administration</TooltipContent>
+          </Tooltip>
+        )}
         <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-full py-0.5 pr-2 pl-0.5 ring-1 ring-slate-200 transition hover:bg-slate-50">
+            <button className="flex items-center rounded-full p-0.5 ring-1 ring-slate-200 transition hover:bg-slate-50">
               <span className="relative grid size-7 place-items-center rounded-full bg-gradient-to-br from-sky-500 to-sky-700 text-[11px] font-bold text-white uppercase">
                 {user?.username.slice(0, 2)}
                 {user && !user.mfa_enabled && (
                   <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-amber-400 ring-2 ring-white" title="Two-factor sign-in is off" />
                 )}
-              </span>
-              <span className="hidden text-left leading-tight min-[1760px]:block">
-                <span className="block text-[12px] font-medium">{user?.username}</span>
-                <span className="block text-[10px] text-muted-foreground">{user?.role_label}</span>
               </span>
             </button>
           </DropdownMenuTrigger>

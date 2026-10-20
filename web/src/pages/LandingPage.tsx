@@ -74,7 +74,7 @@ export function LandingPage() {
       <Feature
         eyebrow="Programmes & participants"
         title="Flexibility, organised the way it is contracted"
-        text="Interruptible load, C&I curtailment, load shifting, DER & EV aggregation, battery storage and supply-side flex. Pick a programme and its participants light up on the map with availability, reliability and price."
+        text="Interruptible load, C&I demand response, load shifting, DER & EV aggregation, battery storage and supply-side flex. Pick a programme and its participants light up on the map with availability, reliability and price."
         points={['Reliability learned from every metered event', 'Heartbeat and telemetry health per participant', 'Take out of service with a reason — audited']}
         img="/landing/programs.webp"
         icon={<Users />}
@@ -471,7 +471,7 @@ function Trust() {
     },
     { i: <Bell />, t: 'ISA-18.2 alarms', d: 'On/off delays, acknowledgement, shelving with reason, and correlation into incidents.' },
     { i: <Gauge />, t: 'ISA-101 HMI', d: 'Calm, muted base; colour reserved for abnormal states so alarms stand out.' },
-    { i: <Lock />, t: 'RBAC & JWT', d: 'Operator, shift-in-charge, analyst, engineer and admin — every permission enforced server-side.' },
+    { i: <Lock />, t: 'RBAC & JWT', d: 'SLDC Operator, Shift In-charge, DR Programme Manager, Settlement Officer, Auditor and Administrator — every permission enforced server-side.' },
     { i: <FileCheck2 />, t: 'Tamper-evident audit', d: 'SHA-256 hash-chained log of every decision, approval, command and override, verifiable in one click.' },
     { i: <Radio />, t: 'Observability', d: 'Health and readiness probes, Prometheus metrics, dead-man watchdog, write-behind persistence.' },
   ]

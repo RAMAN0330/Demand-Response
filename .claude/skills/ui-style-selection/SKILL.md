@@ -79,7 +79,11 @@ ADRMS uses **Spatial UI + Glassmorphism**: the lavender backdrop and the 3D map 
 - `surface-tile`: 12 px radius, 72 % white, `blur(16px)`.
 - `surface-chip`: for controls over the 3D scene, 84 % white, because the scene is busier than the backdrop.
 - Shadows are tinted with the brand indigo (`rgb(52 32 143 / …)`), never neutral grey.
-- The top bar is a floating, round-edged glass bar: `surface-panel` inset 12 px from the edges (`mx-3 mt-2.5`), with the backdrop showing around it.
+- The top bar is a floating, round-edged glass bar: `surface-panel` inset 12 px from the edges (`mx-3 mt-2.5`), with the backdrop showing around it. It is the only navigation: there is no sidebar.
+- Top-bar navigation follows `web/src/lib/nav.ts`: the Operate pages as text tabs (no icons; active = `brand-800` text with a 3 px underline), the Plan pages in one dropdown that takes the active page's name, Settlement & Audit as a tab, and Administration as a gear icon on the right. Pages a role may not open are not shown. Count badges keep the status colours.
+- Keep the top bar uncluttered: status cluster = severity · autonomy level (no level name) · data-confidence shield (numbers only when degraded or stale) · clock (time only) · Read-only pill for read-only roles · gear · bell · avatar (initials only). Detail goes in tooltips and menus, not in the bar.
+- Shell layout: top bar, then the page in a `p-3` box (the Overview map is full-bleed). Every page fills that box; KPI rows use `StatStrip` (equal columns), and tab lists scroll sideways rather than clip.
+- The sign-in page sits on the lavender backdrop: the indigo brand card floats on the left (16 px radius, `--shadow-float`), the form is a `surface-panel` card on the right. Role comes first, as a 3 × 2 grid of role tiles (selected = `brand-600` border, `brand-50` fill), then username and password.
 - Opaque white fallback is used when `backdrop-filter` is unsupported. Don't mix `surface-*` with `rounded-*`, `ring-*` or `shadow-*`; signal state with a `!border-…` colour instead.
 
 **Rules**

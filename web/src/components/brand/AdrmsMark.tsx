@@ -27,7 +27,7 @@ export function AdrmsBrand({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-2', className)} title="ADRMS — Automated Demand Response Management System">
       <AdrmsMark className="shadow-sm" />
-      <span className="text-[14px] text-gradient font-extrabold tracking-[0.08em] max-[1365px]:hidden">ADRMS</span>
+      <span className="text-[14px] text-gradient font-extrabold tracking-[0.08em]">ADRMS</span>
     </span>
   )
 }

@@ -29,6 +29,8 @@
                                                                          More ▾ = What-if sandbox · Resources · Reports & Audit · Administration
 ```
 
+> **Update:** the top bar now groups pages by workflow and filters them by role: Operate tabs, a Plan menu, Settlement & Audit, and Administration behind the gear. See the README. The reasoning below still holds for the order of destinations.
+
 **Primary (top bar).** Five operator destinations, ordered by the operator's loop *understand → act*. Counts show pending work:
 
 1. **Command Center.** Home. Answers the four questions on one screen.

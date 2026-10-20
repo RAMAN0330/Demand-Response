@@ -194,7 +194,7 @@ function GridEventSandbox() {
             onChange={(v) => set('bess_availability', v)}
           />
           <Knob
-            label="Industrial compliance"
+            label="C&I compliance"
             value={p.industrial_compliance}
             min={0.3}
             max={1}
@@ -240,7 +240,7 @@ function GridEventSandbox() {
                 steps={[
                   { k: '1', title: 'Perturb', text: 'Shock applied by load share in the chosen region; RE drop split 70 % solar / 30 % wind.' },
                   { k: '2', title: 'Assess', text: 'DC power flow (PTDF) gives line loading; ACE, frequency band and DSM exposure per block.' },
-                  { k: '3', title: 'Optimise', text: 'Least-cost mix of BESS, industrial and other flexibility under network limits (LP).' },
+                  { k: '3', title: 'Optimise', text: 'Least-cost mix of BESS, C&I demand response and other flexibility under network limits (LP).' },
                   { k: '4', title: 'Verify', text: 'Digital-twin safety gate: ramp, state of charge, loading and N-1 checks.' },
                 ]}
               />
