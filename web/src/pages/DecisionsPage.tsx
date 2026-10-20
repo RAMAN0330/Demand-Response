@@ -9,12 +9,16 @@ import {
   Check,
   CheckCircle2,
   Crosshair,
+  Gauge,
   IndianRupee,
+  ListChecks,
   Loader2,
   MapPin,
   OctagonX,
   Receipt,
   Send,
+  Target,
+  Timer,
   UserCheck,
   XCircle,
   Zap,
@@ -186,8 +190,10 @@ export function DecisionsPage() {
     <div className="flex h-full flex-col gap-3">
       <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-3">
         <div className="flex min-h-0 flex-col gap-3">
+          <TodaySummary items={items} />
           <Panel
-            className="min-h-0 flex-1"
+            className="min-h-0"
+            style={{ flex: `0 1 ${Math.max(1, Math.min(items.length, 5)) * 80 + 56}px` }}
             title="DR events"
             aside={
               <span className="text-[11px] text-slate-500">
@@ -251,6 +257,7 @@ export function DecisionsPage() {
               />
             )}
           </Panel>
+          <ActivityLog id={selected} />
         </div>
         {selected ? <DecisionDetail id={selected} /> : <Panel>{<Empty>Select a DR event.</Empty>}</Panel>}
       </div>
@@ -297,12 +304,13 @@ function DecisionDetail({ id }: { id: string }) {
   return (
     <section className="flex min-h-0 flex-col gap-3">
       {/* header + actions */}
-      <div className="surface-panel flex shrink-0 items-center gap-3 px-3 py-2.5">
+      <div className="flex shrink-0 items-center gap-3 rounded-xl border bg-white px-3 py-2.5 shadow-xs">
         <span className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-bold', STATE_STYLE[d.state])}>{d.state.replace('_', ' ')}</span>
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-[14px] font-semibold text-slate-800">{d.headline || d.closed_reason}</div>
           <div className="text-[11px] text-slate-500">
-            {d.id} · opened {clockS(d.opened_at)} · revision {d.revision}
+            {d.id} · opened {clockS(d.opened_at)} · revision {d.revision} ({cur?.reason}) · {d.severity} · {d.direction}
+            {d.approval_history.length > 0 && ` · approvals: ${d.approval_history.map((a) => `${a.user} (r${a.revision})`).join(', ')}`}
           </div>
         </div>
         {msg && <span className="max-w-[260px] truncate text-[11px] text-slate-600">{msg}</span>}
@@ -328,19 +336,26 @@ function DecisionDetail({ id }: { id: string }) {
 
       <EventKpis d={d} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3">
-        <Panel title="Target vs dispatched vs delivered (MW)" bodyClass="p-2">
-          <PerformanceChart d={d} />
-        </Panel>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
+        <div className="grid min-h-0 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
+          <Panel title="Event performance — target vs dispatched vs delivered (MW)" bodyClass="p-2">
+            <PerformanceChart d={d} />
+          </Panel>
+          <Panel title="Why — situation to outcome" bodyClass="overflow-hidden">
+            <StoryChain narrative={d.narrative} compact />
+          </Panel>
+        </div>
         <Panel bodyClass="flex flex-col">
           {cur ? (
             <SectionTabs
               sections={[
-                { id: 'why', label: 'Why', content: <div className="h-full overflow-y-auto"><StoryChain narrative={d.narrative} compact /></div> },
                 { id: 'plan', label: `Participants (${cur.allocations.length})`, content: <PlanTab d={d} /> },
-                { id: 'cmds', label: 'Dispatch', content: <CommandsTab d={d} /> },
-                { id: 'activity', label: 'Activity', content: <ActivityLog id={id} /> },
-                { id: 'details', label: `Details${cur.twin.ok ? '' : ' ⚠'}`, content: <DetailsTab d={d} /> },
+                { id: 'evidence', label: 'Grid need', content: <EvidenceTab d={d} /> },
+                { id: 'coord', label: 'Coordination', content: <CoordTab d={d} /> },
+                { id: 'alts', label: 'Options', content: <AltTab d={d} /> },
+                { id: 'twin', label: `Safety ${cur.twin.ok ? '✓' : '✕'}`, content: <TwinTab d={d} /> },
+                { id: 'cmds', label: `Dispatch (${d.commands?.length ?? 0})`, content: <CommandsTab d={d} /> },
+                { id: 'revs', label: `Revisions (${d.revisions.length})`, content: <RevisionsTab d={d} /> },
                 ...(d.settlement ? [{ id: 'settle', label: 'Settlement', content: <SettleTab d={d} /> }] : []),
               ]}
             />
@@ -372,21 +387,6 @@ function DecisionDetail({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
     </section>
-  )
-}
-
-/** The analysis behind the decision, one level down so the event view stays short. */
-function DetailsTab({ d }: { d: Full }) {
-  return (
-    <SectionTabs
-      sections={[
-        { id: 'evidence', label: 'Grid need', content: <EvidenceTab d={d} /> },
-        { id: 'twin', label: `Safety checks ${d.current.twin.ok ? '✓' : '✕'}`, content: <TwinTab d={d} /> },
-        { id: 'alts', label: 'Options', content: <AltTab d={d} /> },
-        { id: 'coord', label: 'Coordination', content: <CoordTab d={d} /> },
-        { id: 'revs', label: `Revisions (${d.revisions.length})`, content: <RevisionsTab d={d} /> },
-      ]}
-    />
   )
 }
 
@@ -943,32 +943,34 @@ function EventKpis({ d }: { d: Full }) {
   const perf = st ? (st.expected_mwh >= 0.5 ? st.delivered_mwh / st.expected_mwh : null) : expected >= 5 ? delivering / expected : null
   const mins = st ? st.duration_min : (o.minutes ?? 0)
   return (
-    <div className="grid shrink-0 grid-cols-4 gap-2">
-      <Stat
-        icon={<Crosshair />}
-        label="Target"
-        value={fmtMW(d.requirement_mw)}
-        sub={`${d.direction === 'UP' ? 'load reduction' : 'load increase'} · ${mins.toFixed(0)} min ${d.closed_at ? 'total' : 'so far'}`}
-      />
+    <div className="grid shrink-0 grid-cols-6 gap-2">
+      <Stat icon={<Crosshair />} label="Target (grid need)" value={fmtMW(d.requirement_mw)} sub={d.direction === 'UP' ? 'load reduction' : 'load increase'} />
       <Stat
         icon={<Send />}
         label="Dispatched"
         value={fmtMW(d.planned_mw)}
-        sub={d.awaiting_mw > 0.5 ? `${d.awaiting_mw.toFixed(0)} MW awaiting approval` : `${d.auto_mw.toFixed(0)} MW automatic`}
+        sub={`${d.auto_mw.toFixed(0)} MW auto · ${d.awaiting_mw.toFixed(0)} MW awaiting`}
         tone={d.awaiting_mw > 0.5 ? 'warn' : undefined}
       />
       <Stat
         icon={<Activity />}
         label={st ? 'Energy delivered' : 'Delivering now'}
         value={st ? fmtEnergy(st.delivered_mwh) : fmtMW(delivering)}
-        sub={perf == null ? (st ? `of ${fmtEnergy(st.expected_mwh)} expected` : `of ${fmtMW(expected)} expected`) : `${(perf * 100).toFixed(0)}% of expected`}
-        tone={perf == null ? undefined : perf >= 0.85 ? 'good' : 'warn'}
+        sub={st ? `of ${fmtEnergy(st.expected_mwh)} expected` : `of ${fmtMW(expected)} expected`}
       />
       <Stat
+        icon={<Target />}
+        label="Performance vs baseline"
+        value={perf == null ? '—' : `${(perf * 100).toFixed(0)}%`}
+        tone={perf == null ? undefined : perf >= 0.85 ? 'good' : 'warn'}
+        sub="metered delivery / expected"
+      />
+      <Stat icon={<Timer />} label="Duration" value={`${mins.toFixed(0)} min`} sub={d.closed_at ? `closed ${clockS(d.closed_at)}` : `since ${clockS(d.opened_at)}`} />
+      <Stat
         icon={<IndianRupee />}
-        label={st ? 'Net benefit' : 'DSM avoided so far'}
+        label={st ? 'Net benefit' : 'DSM charges avoided so far'}
         value={fmtRs(st ? st.net_benefit_rs : (o.avoided_dsm_rs ?? 0))}
-        sub={st ? `after ${fmtRs(st.payments_rs + (st.rebound_cost_rs ?? 0))} payments` : 'vs doing nothing'}
+        sub={st ? `${fmtRs(st.avoided_dsm_rs)} avoided − ${fmtRs(st.payments_rs + (st.rebound_cost_rs ?? 0))} paid & rebound` : 'vs doing nothing'}
         tone="good"
       />
     </div>
@@ -991,6 +993,39 @@ function PerformanceChart({ d }: { d: Full }) {
         <Line dataKey="target" name="Target" stroke="#c07e18" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
       </ComposedChart>
     </ResponsiveContainer>
+  )
+}
+
+function TodaySummary({ items }: { items: DecisionSummary[] }) {
+  const { data: rep } = useApi<{ decisions: number; delivered_mwh: number; expected_mwh: number; net_benefit_rs: number }>('/reports/summary', { intervalMs: 15000 })
+  const open = items.filter((d) => OPEN.includes(d.state))
+  const waiting = items.filter((d) => d.state === 'AWAITING_APPROVAL').length
+  const perf = rep && rep.expected_mwh > 0 ? rep.delivered_mwh / rep.expected_mwh : null
+  return (
+    <div className="grid shrink-0 grid-cols-2 gap-2">
+      <Stat
+        icon={<Zap />}
+        label="Open events"
+        value={String(open.length)}
+        sub={waiting ? `${waiting} awaiting approval` : open.length ? 'running' : 'none active'}
+        tone={waiting ? 'warn' : open.length ? 'info' : undefined}
+      />
+      <Stat icon={<ListChecks />} label="Settled" value={String(rep?.decisions ?? 0)} sub={`${items.length} events in log`} />
+      <Stat
+        icon={<Gauge />}
+        label="Energy delivered"
+        value={fmtEnergy(rep?.delivered_mwh ?? 0)}
+        sub={perf == null ? 'vs baseline' : `${(perf * 100).toFixed(0)}% of expected`}
+        tone={perf == null ? undefined : perf >= 0.85 ? 'good' : 'warn'}
+      />
+      <Stat
+        icon={<IndianRupee />}
+        label="Net benefit"
+        value={fmtRs(rep?.net_benefit_rs ?? 0)}
+        sub="after participant payments"
+        tone={(rep?.net_benefit_rs ?? 0) >= 0 ? 'good' : 'bad'}
+      />
+    </div>
   )
 }
 
@@ -1018,15 +1053,20 @@ function ActivityLog({ id }: { id: string | null }) {
   const all = data?.items ?? []
   const rows = all.filter((e) => filter === 'all' || (filter === 'dispatch' ? ['COMMAND', 'ACK'].includes(e.kind) : !['COMMAND', 'ACK'].includes(e.kind)))
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 self-start rounded-md bg-slate-100 p-0.5 text-[10px]">
-        {(['all', 'decisions', 'dispatch'] as const).map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={cn('rounded px-1.5 py-0.5 capitalize', filter === f ? 'bg-white font-semibold shadow-xs' : 'text-slate-500')}>
-            {f}
-          </button>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1">
+    <Panel
+      className="min-h-0 flex-1"
+      title="Event activity"
+      aside={
+        <div className="flex rounded-md bg-slate-100 p-0.5 text-[10px]">
+          {(['all', 'decisions', 'dispatch'] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)} className={cn('rounded px-1.5 py-0.5 capitalize', filter === f ? 'bg-white font-semibold shadow-xs' : 'text-slate-500')}>
+              {f}
+            </button>
+          ))}
+        </div>
+      }
+      bodyClass="p-1.5"
+    >
       {!id ? (
         <Empty>Select an event to follow its activity.</Empty>
       ) : rows.length === 0 ? (
@@ -1061,7 +1101,6 @@ function ActivityLog({ id }: { id: string | null }) {
           )}
         />
       )}
-      </div>
-    </div>
+    </Panel>
   )
 }
