@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Toaster } from '@/components/layout/Notifications'
+import { SideNav } from '@/components/layout/SideNav'
+import { canSee } from '@/lib/nav'
 import { TopNav } from '@/components/layout/TopNav'
-import { cn } from '@/lib/utils'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AdminPage } from '@/pages/AdminPage'
 import { AlarmsPage } from '@/pages/AlarmsPage'
@@ -42,7 +43,10 @@ export default function App() {
 }
 
 function Shell() {
-  const page = useUI((s) => s.page)
+  const wanted = useUI((s) => s.page)
+  const can = useAuth((s) => s.can)
+  // a page this role may not open falls back to the overview (the API refuses its actions either way)
+  const page = canSee(wanted, can) ? wanted : 'command'
   const ready = useLive((s) => s.topologyReady)
   const loadTopology = useLive((s) => s.loadTopology)
   const connect = useLive((s) => s.connect)
@@ -66,7 +70,9 @@ function Shell() {
   return (
     <div className="spatial-backdrop flex h-full flex-col overflow-hidden">
       <TopNav />
-      <main key={page} className={cn('min-h-0 flex-1 overflow-hidden animate-in fade-in duration-200', page === 'command' ? 'pt-2.5' : 'p-3')}>
+      <div className="flex min-h-0 flex-1 gap-3 p-3">
+        <SideNav />
+        <main key={page} className="min-h-0 min-w-0 flex-1 overflow-hidden animate-in fade-in duration-200">
         {page === 'command' && <CommandCenter />}
         {page === 'operations' && <OperationsPage />}
         {page === 'decisions' && <DecisionsPage />}
@@ -78,7 +84,8 @@ function Shell() {
         {page === 'resources' && <ResourcesPage />}
         {page === 'reports' && <ReportsPage />}
         {page === 'admin' && <AdminPage />}
-      </main>
+        </main>
+      </div>
       <Toaster />
     </div>
   )

@@ -1,28 +1,21 @@
-// Primary navigation (operator destinations), live event chip, and the system-status cluster.
+// Top bar: brand, where you are (workflow group › page), the live event chip and the system-status cluster.
+// Page navigation lives in SideNav.
 import { useState } from 'react'
 import {
   Activity,
-  Bell,
   Bot,
   ChevronDown,
-  FlaskConical,
-  LayoutDashboard,
-  LineChart,
+  Eye,
   LogOut,
-  Network,
   PauseCircle,
   PlayCircle,
-  Power,
-  Receipt,
   Settings2,
-  Siren,
   ShieldAlert,
   ShieldCheck,
   UserCog,
   Wifi,
   WifiOff,
   Users,
-  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -37,28 +30,11 @@ import { fmtMW } from '@/lib/geo'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/store/useAuth'
 import { useLive } from '@/store/useLive'
-import { useUI, type Page } from '@/store/useUI'
+import { useUI } from '@/store/useUI'
+import { NAV_ITEM, readOnly } from '@/lib/nav'
 
 const LEVELS = ['Monitor', 'Advisory', 'Supervised', 'Autonomous']
 const fmtAge = (s: number | null | undefined) => (s == null ? 'never' : s < 60 ? `${s.toFixed(0)} s` : s < 3600 ? `${(s / 60).toFixed(0)} min` : `${(s / 3600).toFixed(1)} h`)
-
-// DR operator workflow: overview → events (act) → programs (capacity) → grid & forecast (context) → alarms
-const PRIMARY: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: 'command', label: 'Overview', icon: LayoutDashboard },
-  { id: 'decisions', label: 'DR Events', icon: Zap },
-  { id: 'resources', label: 'Programmes', icon: Users },
-  { id: 'operations', label: 'Grid', icon: Network },
-  { id: 'shedding', label: 'Load Rotation', icon: Power },
-  { id: 'analysis', label: 'Forecast', icon: LineChart },
-  { id: 'alarms', label: 'Alarms', icon: Bell },
-]
-
-const MORE: { id: Page; label: string; hint: string; icon: typeof LayoutDashboard; perm?: string }[] = [
-  { id: 'whatif', label: 'What-if sandbox', hint: 'Test a DR event before it happens — no dispatch', icon: FlaskConical, perm: 'whatif' },
-  { id: 'simulator', label: 'Grid simulator', hint: 'Training drills, N-1 security and system response on the 3D network', icon: Siren },
-  { id: 'reports', label: 'Settlement & Audit', hint: 'Baseline, delivery, payments, audit trail', icon: Receipt },
-  { id: 'admin', label: 'Administration', hint: 'Autonomy policy, data sources, simulator, users', icon: Settings2 },
-]
 
 export function TopNav() {
   const page = useUI((s) => s.page)
@@ -68,22 +44,12 @@ export function TopNav() {
   const user = useAuth((s) => s.user)
   const logout = useAuth((s) => s.logout)
   const can = useAuth((s) => s.can)
+  const here = NAV_ITEM[page]
   const [suspendOpen, setSuspendOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const counts: Partial<Record<Page, { n: number; tone: string } | null>> = {
-    decisions: f?.counts.awaiting
-      ? { n: f.counts.awaiting, tone: 'bg-amber-500 text-white' }
-      : f?.counts.decisions_open
-        ? { n: f.counts.decisions_open, tone: 'bg-sky-500 text-white' }
-        : null,
-    shedding: f?.shedding?.order
-      ? { n: f.shedding.groups_out || 1, tone: f.shedding.order.state === 'PROPOSED' ? 'bg-amber-500 text-white' : 'animate-pulse bg-rose-500 text-white' }
-      : null,
-    alarms: f?.counts.unacked ? { n: f.counts.unacked, tone: f.counts.p1 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white' } : null,
-  }
   const eff = f?.autonomy.effective ?? 0
   const degraded = f && f.autonomy.effective < f.autonomy.level
 
@@ -105,9 +71,6 @@ export function TopNav() {
   const oldest = age ? Math.max(...[age.frequency, age.schedule, age.breakers, age.sldc].filter((x): x is number => x != null), 0) : null
   const stale = oldest != null && oldest > 10
   const sevDot = { NORMAL: 'bg-emerald-500', ALERT: 'bg-amber-500', EMERGENCY: 'animate-pulse bg-rose-500' } as const
-  const tab = 'relative flex h-full items-center gap-1.5 px-2 text-[13px] 2xl:px-2.5 font-medium whitespace-nowrap text-slate-500 transition hover:text-slate-900'
-  const on = 'text-sky-700 after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-t-full after:bg-sky-600'
-
   return (
     <header className="surface-panel relative z-30 mx-3 mt-2.5 flex h-13 shrink-0 items-stretch gap-3 px-3 text-slate-800">
       {/* hairline highlight along the bottom edge */}
@@ -117,33 +80,19 @@ export function TopNav() {
       </button>
       <div className="my-3 w-px bg-slate-200" />
 
-      <nav className="flex min-w-0 items-stretch">
-        {PRIMARY.map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => go(id)} className={cn(tab, page === id && on)}>
-            <Icon className="size-4 max-[1799px]:hidden" />
-            {label}
-            {counts[id] && <span className={cn('ml-0.5 rounded-full px-1.5 text-[10px] font-bold tabular-nums', counts[id]!.tone)}>{counts[id]!.n}</span>}
-          </button>
-        ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={cn(tab, 'gap-1', MORE.some((m) => m.id === page) && on)}>
-              <span className="max-w-40 truncate">{MORE.find((m) => m.id === page)?.label ?? 'More'}</span> <ChevronDown className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            {MORE.filter((m) => !m.perm || can(m.perm)).map(({ id, label, hint, icon: Icon }) => (
-              <DropdownMenuItem key={id} onClick={() => go(id)} className="items-start">
-                <Icon className="mt-0.5" />
-                <span>
-                  <span className="block font-medium">{label}</span>
-                  <span className="block text-[11px] text-muted-foreground">{hint}</span>
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </nav>
+      {/* where you are: workflow group › page, and the role's access when it is read-only */}
+      <div className="flex min-w-0 flex-col justify-center leading-tight">
+        <span className="eyebrow">{here?.group}</span>
+        <span className="flex items-center gap-2 truncate text-[15px] font-semibold text-slate-800">
+          {here && <here.icon className="size-4 text-sky-700" />}
+          {here?.label}
+          {readOnly(user?.permissions) && (
+            <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+              <Eye className="size-3" /> Read-only
+            </span>
+          )}
+        </span>
+      </div>
 
       {/* live event + system status — qualifies everything on screen */}
       <div className="ml-auto flex items-center gap-2">
@@ -223,7 +172,7 @@ export function TopNav() {
                       </DropdownMenuItem>
                     )
                   ) : (
-                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Suspend/resume requires Shift-in-Charge.</div>
+                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Suspend/resume requires the Shift In-charge.</div>
                   )}
                   <DropdownMenuItem onClick={() => go('admin')}>
                     <Settings2 /> Autonomy policy…

@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useApi } from '@/hooks'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ROLE_INFO } from '@/lib/roles'
 import { useAuth } from '@/store/useAuth'
 
 interface AdminUser {
@@ -34,13 +35,6 @@ interface AdminUser {
   sessions: number
 }
 
-const ROLE_INFO: { role: string; label: string; desc: string }[] = [
-  { role: 'operator', label: 'Shift Operator', desc: 'Monitor, acknowledge alarms, approve, reject or abort decisions, what-if' },
-  { role: 'shift_in_charge', label: 'Shift-in-Charge', desc: 'Operator + dual authorisation, shelve alarms, autonomy and kill switch, resources' },
-  { role: 'analyst', label: 'Analyst', desc: 'Read-only, what-if, reports' },
-  { role: 'engineer', label: 'Engineer', desc: 'Configuration, safety envelope, DSM rules, simulator, resources' },
-  { role: 'admin', label: 'Administrator', desc: 'All permissions, including user management' },
-]
 
 type Confirm = { title: string; body: string; action: string; danger?: boolean; run: () => Promise<unknown> }
 

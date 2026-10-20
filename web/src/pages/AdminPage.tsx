@@ -190,7 +190,7 @@ function AutonomyTab() {
       <div className="flex min-h-0 flex-col gap-3">
         <div className="space-y-4 rounded-2xl border bg-slate-50/50 p-4">
           <div className="text-[13px] font-semibold">
-            L2 safety envelope {!envEditable && <span className="text-[11px] font-normal text-slate-500">(requires engineer/admin)</span>}
+            L2 safety envelope {!envEditable && <span className="text-[11px] font-normal text-slate-500">(requires Administrator)</span>}
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Resource types allowed to act without approval</Label>
@@ -298,7 +298,10 @@ const AUTHORITY: { action: string; perm: string }[] = [
   { action: 'Approve load rotation', perm: 'shed' },
   { action: 'Suspend / resume autonomy', perm: 'autonomy' },
   { action: 'Change envelope, DSM table', perm: 'config' },
+  { action: 'Manage programmes and C&I offers', perm: 'resources' },
   { action: 'Inject simulator drills', perm: 'simulator' },
+  { action: 'Resolve settlement disputes', perm: 'settle' },
+  { action: 'Verify the audit chain', perm: 'audit' },
   { action: 'Manage users', perm: 'users' },
 ]
 
@@ -683,7 +686,7 @@ function SimulatorTab() {
         <Button size="sm" className="w-full" disabled={!allowed} onClick={inject}>
           <Zap className="size-4" /> Inject disturbance
         </Button>
-        {!allowed && <div className="text-[11px] text-slate-500">Requires the engineer or admin role.</div>}
+        {!allowed && <div className="text-[11px] text-slate-500">Requires the Shift In-charge, DR Programme Manager or Administrator role.</div>}
         {err && <div className="text-xs text-rose-600">{err}</div>}
       </div>
       <div className="min-h-0">

@@ -1,4 +1,4 @@
-"""GridFlex API — industrial flexibility (offers, M&V, disputes), the coordination ledger, KPIs and scenarios."""
+"""GridFlex API — C&I demand response (offers, M&V, disputes), the coordination ledger, KPIs and scenarios."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ class ResolveIn(BaseModel):
 
 
 @gridflex.post("/mv/{decision_id}/{pid}/resolve")
-async def resolve(decision_id: str, pid: str, body: ResolveIn, request: Request, p: Principal = Depends(need("config"))):
+async def resolve(decision_id: str, pid: str, body: ResolveIn, request: Request, p: Principal = Depends(need("settle"))):
     r = rt(request)
     try:
         async with r.lock:

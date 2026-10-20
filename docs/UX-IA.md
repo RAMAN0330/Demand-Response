@@ -29,6 +29,8 @@
                                                                          More ▾ = What-if sandbox · Resources · Reports & Audit · Administration
 ```
 
+> **Update:** navigation now lives in a grouped, role-filtered sidebar (Operate · Plan · Settle · System) and the top bar names the current page; see the README. The reasoning below still holds for the order of destinations.
+
 **Primary (top bar).** Five operator destinations, ordered by the operator's loop *understand → act*. Counts show pending work:
 
 1. **Command Center.** Home. Answers the four questions on one screen.

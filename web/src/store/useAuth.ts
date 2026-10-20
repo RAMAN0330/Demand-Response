@@ -44,7 +44,7 @@ interface AuthState {
   remember: boolean
   user: AuthUser | null
   notice: string | null
-  login: (username: string, password: string, remember: boolean) => Promise<LoginStep>
+  login: (username: string, password: string, remember: boolean, role?: string) => Promise<LoginStep>
   verifyMfa: (challenge: string, code: string) => Promise<LoginStep>
   completePasswordChange: (challenge: string, password: string) => Promise<LoginStep>
   refresh: () => Promise<boolean>
@@ -111,10 +111,10 @@ export const useAuth = create<AuthState>()(
         remember: false,
         user: null,
         notice: null,
-        login: async (username, password, remember) => {
+        login: async (username, password, remember, role) => {
           rememberFlag = remember
           set({ remember })
-          return accept(await post('/login', { username, password, remember }))
+          return accept(await post('/login', { username, password, remember, role }))
         },
         verifyMfa: async (challenge, code) => accept(await post('/mfa', { challenge, code })),
         completePasswordChange: async (challenge, password) => accept(await post('/password/required', { challenge, new_password: password })),

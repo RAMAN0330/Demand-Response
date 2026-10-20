@@ -1,4 +1,4 @@
-"""GridFlex — industrial flexibility: participants, flexible processes, offers, baselines and M&V.
+"""GridFlex — C&I demand response: participants, flexible processes, offers, baselines and M&V.
 
 An industry does not hand the grid an off-switch. It declares a *flexibility envelope* — what it can safely
 change, how fast, for how long, how often, and at what price — as an offer for a time window. ADRMS may only

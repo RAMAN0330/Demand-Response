@@ -154,7 +154,7 @@ C  = (DAM + RTM + ancillary) / 3
 NR = max(A, B, C)
 ```
 
-The rule table is **versioned configuration**. Each table records its regulation, amendments applied, effective date, source and approver, and the platform refuses a table without a version, source and effective date (an engineer loads it under Administration → DSM rules). The table in force is used everywhere: assessment, optimiser, strategy comparison and M&V.
+The rule table is **versioned configuration**. Each table records its regulation, amendments applied, effective date, source and approver, and the platform refuses a table without a version, source and effective date (an administrator loads it under Administration → DSM rules). The table in force is used everywhere: assessment, optimiser, strategy comparison and M&V.
 
 **Volume bands.** The 2024 structure prices successive slices of |deviation| differently. Each band's upper edge is the lower of a percentage of schedule and an MW cap:
 
@@ -323,7 +323,7 @@ A network-constrained, multi-block linear program, solved with HiGHS. Horizon = 
 | Tier | Resources | Why this order |
 | --- | --- | --- |
 | 1 | **BESS** | Fastest, no consumer impact, fully controllable |
-| 2 | **Industrial flexibility** | Contracted envelopes inside accepted offers (§11) |
+| 2 | **C&I Demand Response** | Contracted envelopes inside accepted offers (§11) |
 | 3 | Other paid flexibility | Generation re-dispatch, interruptible, shiftable, DER |
 | 4 | RTM purchase | About 1 h lead (§2.1) |
 | last | **Load rotation** | Not in the optimiser: only the residual after every tier, with approval (§7) |
@@ -388,7 +388,7 @@ Each strategy is the same LP restricted to a set of resource types:
 | **Re-dispatch generation** | Intra-state thermal/hydro headroom | When cheap headroom sits on unconstrained buses |
 | **BESS only** | Grid batteries | Fast and short; limited by SoC |
 | **Demand response only** | Interruptible, shiftable, industrial, DER | Peaks where consumer flexibility is cheapest |
-| **Priority mix** | All of the above in priority order (BESS → industrial → others → RTM) under network limits | Chosen and dispatched |
+| **Priority mix** | All of the above in priority order (BESS → C&I DR → others → RTM) under network limits | Chosen and dispatched |
 
 The Options tab pins the chosen plan first and ranks the rest by **total cost**. For each option it shows:
 - paid cost vs DSM still owed;
@@ -506,7 +506,7 @@ reliability_new = min(0.995, 0.8 · reliability_old + 0.2 · min(1, p))
 
 ## 7. Last resort: load rotation
 
-**Order of resort for over-drawal:** BESS, then industrial flexibility, then other paid flexibility (§5.3). Only the **residual** can become a load-rotation order. Under-drawal is never handled by load rotation.
+**Order of resort for over-drawal:** BESS, then C&I demand response, then other paid flexibility (§5.3). Only the **residual** can become a load-rotation order. Under-drawal is never handled by load rotation.
 
 **Residual for rotation** — measured wherever possible:
 
@@ -528,7 +528,7 @@ residual ≥ 50 MW  AND  ( frequency < 49.90 Hz   OR   residual > DSM band 1 = m
 sustained 120 s — or immediately when frequency < 49.80 Hz
 ```
 
-The band follows the DSM rule table in force (its first band). An engineer can override it with a fixed MW. The 120 s hold is an application trigger.
+The band follows the DSM rule table in force (its first band). An administrator can override it with a fixed MW. The 120 s hold is an application trigger.
 
 ### Approval
 
@@ -601,7 +601,7 @@ Alarm lifecycle:
 
 ## 9. Trust and audit
 
-- **RBAC:** operator, shift-in-charge, analyst, engineer, admin. JWT sessions.
+- **RBAC:** SLDC Operator, Shift In-charge, DR Programme Manager, Settlement Officer, Auditor (read-only), Administrator. JWT sessions.
 - **Audit trail:** every event, analysis, twin result, approval, command, ack, alarm, override, config change and settlement is appended as:
 
   ```
@@ -639,9 +639,9 @@ Alarm lifecycle:
 
 ---
 
-## 11. GridFlex: industrial flexibility and coordinated load rotation
+## 11. GridFlex: C&I demand response and coordinated load rotation
 
-GridFlex is part of ADRMS, not a separate product: industrial flexibility is the preferred controllable response after batteries, and load rotation is the governed fallback for what neither can cover.
+GridFlex is part of ADRMS, not a separate product: C&I demand response is the preferred controllable response after batteries, and load rotation is the governed fallback for what neither can cover.
 
 ### 11.1 Industrial participants and offers
 

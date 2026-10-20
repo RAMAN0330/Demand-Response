@@ -578,7 +578,7 @@ function AltTab({ d }: { d: Full }) {
         const t = tradeoff(c)
         return t
           ? `${c.label} is ${fmtRs(chosen.total_rs - c.total_rs)} cheaper but ${t}`
-          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower, but the dispatch priority is BESS → industrial flexibility → other resources`
+          : `${c.label} prices ${fmtRs(chosen.total_rs - c.total_rs)} lower, but the dispatch priority is BESS → C&I demand response → other resources`
       })()
     : 'Lowest total cost'
   const chip = { good: 'bg-emerald-100 text-emerald-700', warn: 'bg-amber-100 text-amber-800', bad: 'bg-rose-100 text-rose-700' }

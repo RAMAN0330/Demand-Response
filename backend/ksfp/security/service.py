@@ -121,7 +121,7 @@ class AuthService:
         return until if until and until > self.now() else None
 
     # ------------------------------------------------------------------ sign-in steps
-    async def login(self, username: str, password: str, remember: bool, ip: str, agent: str) -> dict:
+    async def login(self, username: str, password: str, remember: bool, ip: str, agent: str, role: str | None = None) -> dict:
         self._throttle(ip)
         username = username.strip().lower()
         u = await self.store.get_user(username)
@@ -134,6 +134,10 @@ class AuthService:
         if not u["active"]:
             self.audit("SECURITY", username, "Sign-in refused: account disabled")
             raise AuthError(403, "This account is disabled. Contact your administrator.")
+        # the role picked on the sign-in page must be the account's own role (checked only after the password)
+        if role and role != u["role"]:
+            self.audit("SECURITY", username, f"Sign-in refused: picked role {role}, account role {u['role']}")
+            raise AuthError(403, f"This account is not registered as {ROLE_LABEL.get(role, role)}. Pick {ROLE_LABEL.get(u['role'], u['role'])} or use another account.")
         await self.store.update_user(username, failed_attempts=0, locked_until=None)
         return await self._next_step(u, remember, ip, agent)
 

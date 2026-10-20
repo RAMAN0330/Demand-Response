@@ -79,6 +79,7 @@ class LoginIn(BaseModel):
     username: str = Field(max_length=64)
     password: str = Field(max_length=256)
     remember: bool = False
+    role: str | None = Field(None, max_length=32)
 
 
 class MfaIn(BaseModel):
@@ -127,7 +128,7 @@ async def auth_config(request: Request):
 @router.post("/auth/login")
 async def login(body: LoginIn, request: Request):
     ip, ua = _client(request)
-    return await _auth(rt(request).auth.login(body.username, body.password, body.remember, ip, ua))
+    return await _auth(rt(request).auth.login(body.username, body.password, body.remember, ip, ua, body.role))
 
 
 @router.post("/auth/mfa")
@@ -757,7 +758,7 @@ async def audit(request: Request, limit: int = Query(50, le=500), offset: int = 
 
 
 @router.get("/audit/verify")
-async def audit_verify(request: Request, p: Principal = Depends(need("view"))):
+async def audit_verify(request: Request, p: Principal = Depends(need("audit"))):
     r = rt(request)
     await r._flush()
     return AuditLog.verify(await r.store.audit_all())

@@ -1,4 +1,4 @@
-"""GridFlex coordination: one shortage ledger across industrial flexibility, other flexibility and load rotation.
+"""GridFlex coordination: one shortage ledger across C&I demand response, other flexibility and load rotation.
 
     shortage            the over-drawal the active event is sized for (underlying requirement, UP direction)
   − industrial          verified reduction from industries in accepted offers (baseline − meter)

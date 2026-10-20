@@ -11,7 +11,7 @@ Decision variables, for resources i and blocks b:
 min  Σ (pay+rebound + π·(tier_i − 1))_i · R_i · φ[i,b] · x[i,b] · Δt·1000  +  λ Σ s[b]  +  μ Σ v[l,b]
      (₹ per delivered kWh × expected delivered energy — the same rate settlement pays)
 
-Dispatch priority (lexicographic): tier 1 BESS → tier 2 industrial flexibility → tier 3 other paid flexibility
+Dispatch priority (lexicographic): tier 1 BESS → tier 2 C&I demand response → tier 3 other paid flexibility
 (generation, interruptible, shiftable, DER) → tier 4 RTM purchase. Load rotation is never in the LP: it covers
 only what is left after every tier, with approval. The tier step π exceeds the widest cost spread between
 resources, so a lower tier is used only for what the higher tiers cannot deliver within network, ramp, SoC,
@@ -55,13 +55,13 @@ STRATEGIES = {
     "OPTIMAL": {
         "label": "Priority mix",
         "types": {"generation", "bess", "interruptible", "shiftable", "industrial", "der", "rtm"},
-        "desc": "BESS first, then industrial flexibility, then other resources — under network constraints; load rotation only after all of them.",
+        "desc": "BESS first, then C&I demand response, then other resources — under network constraints; load rotation only after all of them.",
     },
 }
 RTM_LEAD_BLOCKS = 4
 # dispatch priority by resource type (1 = first); anything unlisted is tier 3 (other paid flexibility)
 PRIORITY = {"bess": 1, "industrial": 2, "rtm": 4}
-TIER_LABEL = {1: "BESS", 2: "Industrial flexibility", 3: "Other flexibility", 4: "RTM purchase"}
+TIER_LABEL = {1: "BESS", 2: "C&I Demand Response", 3: "Other flexibility", 4: "RTM purchase"}
 
 
 def tier_of(asset_type: str) -> int:

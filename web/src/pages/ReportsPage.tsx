@@ -15,6 +15,7 @@ import { api } from '@/lib/api'
 import { fmtRs } from '@/lib/geo'
 import { fmtEnergy, GLOSSARY, REFERENCES } from '@/lib/standards'
 import { chartTooltip } from '@/lib/ui'
+import { useAuth } from '@/store/useAuth'
 import { clockS } from '@/store/useLive'
 import { useUI } from '@/store/useUI'
 
@@ -54,6 +55,7 @@ export function ReportsPage() {
   const perf = s && s.expected_mwh > 0 ? s.delivered_mwh / s.expected_mwh : null
   const { data: gf } = useApi<{ kpis: GfKpis }>('/gridflex/overview', { intervalMs: 15000 })
   const gk = gf?.kpis
+  const canAudit = useAuth((st) => st.can('audit'))
   return (
     <div className="flex h-full flex-col gap-3">
       <StatStrip>
@@ -92,10 +94,10 @@ export function ReportsPage() {
         <Stat
           icon={verify && !verify.ok ? <ShieldX /> : <Link2 />}
           label="Audit chain (SHA-256)"
-          value={verify ? (verify.ok ? 'Intact' : `Broken at #${verify.broken_at}`) : 'Verify now'}
-          sub={verify ? `${verify.checked} entries re-hashed` : 'click to re-hash every entry'}
+          value={verify ? (verify.ok ? 'Intact' : `Broken at #${verify.broken_at}`) : canAudit ? 'Verify now' : 'Auditor only'}
+          sub={verify ? `${verify.checked} entries re-hashed` : canAudit ? 'click to re-hash every entry' : 'verification needs the Auditor role'}
           tone={verify ? (verify.ok ? 'good' : 'bad') : 'info'}
-          onClick={async () => setVerify(await api('/audit/verify'))}
+          onClick={canAudit ? async () => setVerify(await api('/audit/verify')) : undefined}
         />
       </StatStrip>
       <Panel className="min-h-0 flex-1" bodyClass="flex flex-col">

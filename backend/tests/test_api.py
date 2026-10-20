@@ -31,7 +31,7 @@ def test_probes(client):
 def test_auth_and_rbac(client):
     assert client.get("/api/v1/state").status_code == 401
     assert client.post("/api/v1/auth/login", json={"username": "operator", "password": "nope"}).status_code == 401
-    an = token(client, "analyst")
+    an = token(client, "auditor")
     assert client.get("/api/v1/state", headers=an).status_code == 200
     assert client.post("/api/v1/autonomy/suspend", headers=an, json={"reason": "test"}).status_code == 403
 
@@ -47,7 +47,7 @@ def test_state_overview_topology(client):
 
 
 def test_whatif_has_no_side_effects(client):
-    an = token(client, "analyst")
+    an = token(client, "manager")
     before = len(client.get("/api/v1/commands", headers=an).json()["items"])
     r = client.post("/api/v1/whatif", headers=an, json={"re_drop_mw": 900}).json()
     assert r["assessment"]["requirement"] > 300 and r["plan"]["solver"]["status"] == 0
@@ -59,12 +59,27 @@ def test_kill_switch_and_audit(client):
     assert client.post("/api/v1/autonomy/suspend", headers=sic, json={"reason": "drill"}).json()["suspended"]
     assert client.get("/api/v1/autonomy", headers=sic).json()["effective"] <= 1
     client.post("/api/v1/autonomy/resume", headers=sic)
-    assert client.get("/api/v1/audit/verify", headers=sic).json()["ok"]
+    assert client.get("/api/v1/audit/verify", headers=sic).status_code == 403  # verifying the chain is the auditor's job
+    assert client.get("/api/v1/audit/verify", headers=token(client, "auditor")).json()["ok"]
+
+
+def test_roles_separate_duties(client):
+    roles = {r["role"]: set(r["permissions"]) for r in client.get("/api/v1/admin/roles", headers=token(client, "admin")).json()}
+    assert set(roles) == {"operator", "shift_in_charge", "dr_manager", "settlement_officer", "auditor", "admin"}
+    # the auditor can read everything and change nothing
+    assert roles["auditor"] == {"view", "reports", "audit"}
+    au = token(client, "auditor")
+    assert client.get("/api/v1/gridflex/industrial", headers=au).status_code == 200
+    assert client.post("/api/v1/whatif", headers=au, json={"re_drop_mw": 100}).status_code == 403
+    # only the settlement officer (or admin) resolves an M&V dispute; the programme manager cannot
+    body = {"outcome": "upheld", "adjust_rs": 0}
+    assert client.post("/api/v1/gridflex/mv/X/Y/resolve", headers=token(client, "manager"), json=body).status_code == 403
+    assert client.post("/api/v1/gridflex/mv/X/Y/resolve", headers=token(client, "settlement"), json=body).status_code == 404
 
 
 def test_simulator_scenarios_clock_and_all_clear(client):
-    en = token(client, "engineer")
-    an = token(client, "analyst")
+    en = token(client, "manager")
+    an = token(client, "auditor")
     sc = client.get("/api/v1/admin/simulator/scenarios", headers=an).json()
     assert len(sc) >= 4 and all(s["steps"] for s in sc)
     assert client.post("/api/v1/admin/simulator/scenarios/evening_peak", headers=an).status_code == 403

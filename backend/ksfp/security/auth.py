@@ -23,27 +23,35 @@ from dataclasses import dataclass
 
 import jwt
 
+# SLDC / DR roles. Separation of duties: operators act, the shift-in-charge authorises, the programme manager owns
+# participants and offers, the settlement officer closes money, the auditor only reads, the administrator manages access.
 ROLES: dict[str, set[str]] = {
     "operator": {"view", "ack_alarm", "approve", "reject", "abort", "whatif", "shed_propose"},
-    "shift_in_charge": {"view", "ack_alarm", "shelve_alarm", "approve", "approve_dual", "reject", "abort", "autonomy", "whatif", "resources", "shed_propose", "shed"},
-    "analyst": {"view", "whatif", "reports"},
-    "engineer": {"view", "ack_alarm", "whatif", "reports", "config", "simulator", "resources"},
-    "admin": {"view", "ack_alarm", "shelve_alarm", "approve", "approve_dual", "reject", "abort", "autonomy", "whatif", "reports", "config", "simulator", "resources", "users", "shed_propose", "shed"},
+    "shift_in_charge": {"view", "ack_alarm", "shelve_alarm", "approve", "approve_dual", "reject", "abort", "autonomy", "whatif", "resources", "shed_propose", "shed", "simulator", "reports"},
+    "dr_manager": {"view", "whatif", "reports", "resources", "simulator"},
+    "settlement_officer": {"view", "reports", "settle"},
+    "auditor": {"view", "reports", "audit"},
+    "admin": {"view", "ack_alarm", "shelve_alarm", "approve", "approve_dual", "reject", "abort", "autonomy", "whatif", "reports", "config", "simulator", "resources", "users", "shed_propose", "shed", "settle", "audit"},
 }
 
 ROLE_LABEL = {
-    "operator": "Shift Operator",
-    "shift_in_charge": "Shift-in-Charge",
-    "analyst": "Analyst",
-    "engineer": "Engineer",
+    "operator": "SLDC Operator",
+    "shift_in_charge": "Shift In-charge",
+    "dr_manager": "DR Programme Manager",
+    "settlement_officer": "Settlement Officer",
+    "auditor": "Auditor",
     "admin": "Administrator",
 }
 
+# roles from earlier releases, mapped onto the current set at start-up
+LEGACY_ROLES = {"analyst": "auditor", "engineer": "dr_manager"}
+
 DEMO_USERS = [
-    ("operator", "operator", "Shift Operator (demo)"),
-    ("sic", "shift_in_charge", "Shift-in-Charge (demo)"),
-    ("analyst", "analyst", "Analyst (demo)"),
-    ("engineer", "engineer", "Engineer (demo)"),
+    ("operator", "operator", "SLDC Operator (demo)"),
+    ("sic", "shift_in_charge", "Shift In-charge (demo)"),
+    ("manager", "dr_manager", "DR Programme Manager (demo)"),
+    ("settlement", "settlement_officer", "Settlement Officer (demo)"),
+    ("auditor", "auditor", "Auditor (demo)"),
     ("admin", "admin", "Administrator (demo)"),
 ]
 
