@@ -203,3 +203,6 @@ any non-terminal → ABORTED (operator) · SUPERSEDED (new MPC schedule)
 | `audit/`, `security/`, `store/`, `obs/` | audit chain, auth & RBAC, persistence, metrics |
 | `api/` | REST routers and WebSocket hub |
 | `runtime.py` | wires modules and runs the loops |
+
+
+I want and Advance and Enhaced 3D simulator not like this make it more Realistic and Fast inference and show all decision on simulator and how they are working
